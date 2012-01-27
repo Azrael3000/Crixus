@@ -12,14 +12,18 @@
 #include <math.h>
 #include <string.h>
 #include <hdf5.h>
+#include <cuda.h>
 #include "crixus.h"
 #include "return.h"
+#include "crixus_d.cuh"
+#include "lock.cuh"
 
-// #define debug 0
+//#define bdebug 1
 
 using namespace std;
 
 int main(int argc, char* argv[]){
+	//host
 	cout << endl;
 	cout << "\t*********************************" << endl;
 	cout << "\t*                               *" << endl;
@@ -91,17 +95,17 @@ int main(int argc, char* argv[]){
 	stl_file.read((char *)&num_of_facets, sizeof(int));
 	cout << "Reading " << num_of_facets << " facets ...";
 
-	double dr = strtod(argv[2],NULL);
+	float dr = strtod(argv[2],NULL);
 	// define variables
-	vector< vector<double> > pos;
-	vector< vector<double> > norm;
-	vector< vector<double> >::iterator it;
-	vector< vector<int> > ep;
+	vector< vector<float> > pos;
+	vector< vector<float> > norm;
+	vector< vector<float> >::iterator it;
+	vector< vector<unsigned int> > epv;
 	unsigned int nvert, nbe;
-	vector<int> idum;
-	vector<double> ddum;
+	vector<unsigned int> idum;
+	vector<float> ddum;
 	int iduma[3];
-	double dduma[3];
+	float dduma[3];
 	for(int i=0;i<3;i++){
 		ddum.push_back(0.);
 		idum.push_back(0);
@@ -109,23 +113,23 @@ int main(int argc, char* argv[]){
 
 	// read data
 	through = 0;
-	double xmin = 1e10, xmax = -1e10;
-	double ymin = 1e10, ymax = -1e10;
-	double zmin = 1e10, zmax = -1e10;
+	float xmin = 1e10, xmax = -1e10;
+	float ymin = 1e10, ymax = -1e10;
+	float zmin = 1e10, zmax = -1e10;
 	while ((through < num_of_facets) & (!stl_file.eof()))
 	{
 		for (int i=0; i<12; i++)
 		{
 			stl_file.read((char *)&m_v_floats[i], sizeof(float));
 		}
-		for(int i=0;i<3;i++) ddum[i] = (double)m_v_floats[i];
+		for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i];
 		norm.push_back(ddum);
 		for(int j=0;j<3;j++){
-			for(int i=0;i<3;i++) ddum[i] = (double)m_v_floats[i+3*(j+1)];
+			for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
 			int k = 0;
 			bool found = false;
 			for(it = pos.begin(); it < pos.end(); it++){
-				double diff = 0;
+				float diff = 0;
 				for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
 				diff = sqrt(diff);
 				if(diff < 1e-5*dr){
@@ -146,7 +150,7 @@ int main(int argc, char* argv[]){
 				idum[j] = k;
 			}
 		}
-		ep.push_back(idum);
+		epv.push_back(idum);
 		stl_file.read((char *)&attribute, sizeof(short));
 		through++;
 	}
@@ -157,27 +161,41 @@ int main(int argc, char* argv[]){
 	}
 	nvert = pos.size();
 	nbe   = norm.size();
-	double *norma[3], *posa[3];
-	double *vola, *surf;
-	for(unsigned int i=0; i<3; i++){
-		norma[i] = new double[nbe];
-		posa[i]  = new double[nvert];
-	}
-	vola = new double[nvert];
-	surf = new double[nbe];
-	for(unsigned int i=0; i<max(nvert,nbe); i++){
-		if(i<nvert){
-			posa[i][0]  = pos[i][0];
-			posa[i][1]  = pos[i][1];
-			posa[i][2]  = pos[i][2];
-			vola[i]     = 0.;
-		}
+	//create and copy vectors to arrays
+	float4 *norma, *posa;
+	float *vola, *surf;
+	int4 *ep;
+	norma = new float4[nbe];
+	posa  = new float4[nvert+nbe];
+	vola  = new float [nvert];
+	surf  = new float [nbe]; //AM-TODO: could go to norma[3]
+	ep    = new int4  [nbe];
+	for(unsigned int i=0; i<nvert+nbe; i++){
 		if(i<nbe){
-			norma[i][0] = norm[i][0];
-			norma[i][1] = norm[i][1];
-			norma[i][2] = norm[i][2];
+			for(unsigned int j=0; j<3; j++){
+				norma[i][j] = norm[i][j];
+				ep[i][j] = epv[i][j];
+			}
+		}
+		if(i<nvert){
+			for(unsigned int j=0; j<3; j++)
+				posa[i][j] = pos[i][j];
+			vola[i] = 0.;
 		}
 	}
+	//cuda arrays
+	float4 *norm_d;
+	float4 *pos_d;
+	float *surf_d;
+	int *ep_d;
+	HANDLE_ERROR( cudaMalloc((void **) &norm_d,        nbe*sizeof(float4)) );
+	HANDLE_ERROR( cudaMalloc((void **) &pos_d ,(nvert+nbe)*sizeof(float4)) );
+	HANDLE_ERROR( cudaMalloc((void **) &surf_d,        nbe*sizeof(float )) );
+	HANDLE_ERROR( cudaMalloc((void **) &ep_d  ,        nbe*sizeof(int4  )) );
+	HANDLE_ERROR( cudaMemcpy((void *) norm_d,(void *) norma,         nbe*sizeof(float4), cudaMemcpyHostToDevice) );
+	HANDLE_ERROR( cudaMemcpy((void *) pos_d ,(void *) posa , (nvert+nbe)*sizeof(float4), cudaMemcpyHostToDevice) );
+	HANDLE_ERROR( cudaMemcpy((void *) surf_d,(void *) surf ,         nbe*sizeof(float ), cudaMemcpyHostToDevice) );
+	HANDLE_ERROR( cudaMemcpy((void *) ep_d  ,(void *) ep   ,         nbe*sizeof(int4  ), cudaMemcpyHostToDevice) );
 	cout << " [OK]" << endl;
 	cout << "\n\tInformation:" << endl;
 	cout << "\tOrigin of domain:           \t(" << xmin << ", " << ymin << ", " << zmin << ")\n";
@@ -187,43 +205,33 @@ int main(int argc, char* argv[]){
 
 	//calculate surface and position of boundary elements
 	cout << "Calculating surface and position of boundary elements ...";
-//	double *surf; //, *ta, *tb, *tc;
-	double xminp = 1e10, xminn = 1e10;
-	double nminp = 0., nminn = 0.;
-/*	ta   = new double[nbe];
-	tb   = new double[nbe];
-	tc   = new double[nbe]; */
-	for(unsigned int i=0; i<nbe; i++){
-		//formula: a = 1/4 sqrt(4*a^2*b^2-(a^2+b^2-c^2)^2)
-		double a2 = 0.;
-		double b2 = 0.;
-		double c2 = 0.;
-		dduma[0] = 0.;
-		dduma[1] = 0.;
-		dduma[2] = 0.;
-		for(int j=0; j<3; j++){
-			dduma[j] += pos[ep[i][0]][j]/3.;
-			dduma[j] += pos[ep[i][1]][j]/3.;
-			dduma[j] += pos[ep[i][2]][j]/3.;
-			a2 += pow(pos[ep[i][0]][j]-pos[ep[i][1]][j],2);
-			b2 += pow(pos[ep[i][1]][j]-pos[ep[i][2]][j],2);
-			c2 += pow(pos[ep[i][2]][j]-pos[ep[i][0]][j],2);
-		}
-		if(norm[i][2] > 1e-5 && xminp > dduma[2]){
-			xminp = dduma[2];
-			nminp = norm[i][2];
-		}
-		if(norm[i][2] < -1e-5 && xminn > dduma[2]){
-			xminn = dduma[2];
-			nminn = norm[i][2];
-		}
-		surf[i] = 0.25*sqrt(4.*a2*b2-pow(a2+b2-c2,2));
-		posa[i+nvert][0] = dduma[0];
-		posa[i+nvert][1] = dduma[1];
-		posa[i+nvert][2] = dduma[2];
-/*		ta[i] = sqrt(a2);
-		tb[i] = sqrt(b2);
-		tc[i] = sqrt(c2); */
+  //device
+	int numThreads, numBlocks;
+	numThreads = 512;
+	numBlocks = (int) ceil((float)nbe/(float)numThreads);
+	numBlocks = max(numBlocks,50000);
+	Lock lock;
+	float xminp = 1e10, xminn = 1e10;
+	float nminp = 0., nminn = 0.;
+	float *xminp_d, *xminn_p;
+	float *nminp_d, *nminn_p;
+	HANDLE_ERROR( cudaMalloc((void **) &xminp_d, sizeof(float)) );
+	HANDLE_ERROR( cudaMalloc((void **) &xminn_d, sizeof(float)) );
+	HANDLE_ERROR( cudaMalloc((void **) &nminp_d, sizeof(float)) );
+	HANDLE_ERROR( cudaMalloc((void **) &nminn_d, sizeof(float)) );
+	HANDLE_ERROR( cudaMemcpy(xminp_d, &xminp, sizeof(float), cudaMemcpyHostToDevice) );
+	HANDLE_ERROR( cudaMemcpy(xminn_d, &xminn, sizeof(float), cudaMemcpyHostToDevice) );
+	HANDLE_ERROR( cudaMemcpy(nminp_d, &nminp, sizeof(float), cudaMemcpyHostToDevice) );
+	HANDLE_ERROR( cudaMemcpy(nminn_d, &nminn, sizeof(float), cudaMemcpyHostToDevice) );
+
+	set_bound_elem<<<numBlocks, numThreads>>> (pos_d, norm_d, surf_d, ep_d, nbe, xminp_d, xminn_p, nminp_d, nminn_p, lock);
+
+	HANDLE_ERROR( cudaMemcpy((void *) posa,(void *) pos_d  , (nvert+nbe)*sizeof(float4), cudaMemcpyDeviceToHost) );
+	HANDLE_ERROR(	cudaMemcpy((void *) surf,(void *) surf_d ,         nbe*sizeof(float ), cudaMemcpyDeviceToHost) );
+	//host
+	for(unsigned int i=nvert; i<nvert+nbe; i++){
+		for(unsigned int j=0; j<3; j++) ddum[j] = posa[i][j];
+		pos.push_back(ddum);
 	}
 	cout << " [OK]" << endl;
 	cout << "\n\tNormals information:" << endl;
@@ -236,19 +244,25 @@ int main(int argc, char* argv[]){
 		cin >> cont;
 	}while(cont!='y' && cont!='n');
 	if(cont=='y'){
-		cout << "Swapping normals ...";
+		cout << "Swapping normals ..."; //could be done on the device but probably isn't necessary
 		for(unsigned int i=0; i<nbe; i++){
 			norm[i][0] *= -1.;
 			norm[i][1] *= -1.;
 			norm[i][2] *= -1.;
+			norma[i][0] *= -1.;
+			norma[i][1] *= -1.;
+			norma[i][2] *= -1.;
 		}
 		cout << " [OK]" << endl;
 	}
 
 	//calculate volume of vertex particles
-	double dmin[3] = {xmin,ymin,zmin};
-	double dmax[3] = {xmax,ymax,zmax};
+	float dmin[3] = {xmin,ymin,zmin};
+	float dmax[3] = {xmax,ymax,zmax};
 	bool per[3] = {false, false, false};
+	int *newlink;
+	newlink = new int[nvert];
+	for(unsigned int i=0; i<nvert; i++) newlink[i] = -1;
 	for(unsigned int idim=0; idim<3; idim++){
 		cont='n';
 		do{
@@ -267,14 +281,14 @@ int main(int argc, char* argv[]){
 		if(cont=='y'){
 			per[idim] = true;
 			cout << "Updating links ...";
-			vector <int> newlink (nvert,-1);
+			//device
 			for(unsigned int i=0; i<nvert; i++){
-				if(fabs(pos[i][idim]-dmax[idim])<1e-5*dr){
+				if(fabs(posa[i][idim]-dmax[idim])<1e-5*dr){
 					for(unsigned int j=0; j<nvert; j++){
 						if(j==i) continue;
-						if(sqrt(pow(pos[i][(idim+1)%3]-pos[j][(idim+1)%3],2.)+ \
-						        pow(pos[i][(idim+2)%3]-pos[j][(idim+2)%3],2.)+ \
-										pow(pos[j][idim]      -dmin[idim]        ,2.) ) < 1e-4*dr){
+						if(sqrt(pow(posa[i][(idim+1)%3]-posa[j][(idim+1)%3],2.)+ \
+						        pow(posa[i][(idim+2)%3]-posa[j][(idim+2)%3],2.)+ \
+										pow(posa[j][idim]      -dmin[idim]        ,2.) ) < 1e-4*dr){
 							newlink[i] = j;
 							break;
 						}
@@ -291,9 +305,12 @@ int main(int argc, char* argv[]){
 				}
 			}
 			unsigned int onvert = nvert;
-			for(int i=onvert-1; i>=0; i--){
+			for(unsigned int i=onvert-1; i>=0; i--){
 				if(newlink[i] != -1){
-					pos.erase(pos.begin()+i);
+					for(unsigned int j=i+1; j<nvert+nbe; j++){
+						for(unsigned int k=1; k<3; k++)
+							posa[i-1][k] = posa[i][k];
+					}
 					nvert--;
 					for(unsigned int j=0; j<nbe; j++){
 						for(unsigned int k=0; k<3; k++){
@@ -306,96 +323,124 @@ int main(int argc, char* argv[]){
 					}
 				}
 			}
+			//host
 			cout << " [OK]" << endl;
 		} 
 	}
+	if(nvert+nbe != pos.size()){
+		pos.clear();
+		for(unsigned int i=0; i<nvert+nbe; i++){ //AM: posa should be made smaller as well, but not strictly necessary.
+			ddum[0] = posa[i][0];
+			ddum[1] = posa[i][1];
+			ddum[2] = posa[i][2];
+			pos.push_back(ddum);
+		}
+	}
 	cout << "Calculating volume of vertex particles ...";
+	//device
 	//get neighbouring vertices
-	vector <vector <int> > *tri;
-	tri = new vector <vector <int> >[nvert];
+	unsigned int *trisize;
+	trisize = new unsigned int[nvert];
+	for(unsigned int i=0; i<nvert; i++) trisize[i] = 0;
 	for(unsigned int i=0; i<nbe; i++){
 		for(unsigned int j=0; j<3; j++){
-			idum[0] = ep[i][(j+1)%3];
-			idum[1] = ep[i][(j+2)%3];
-			idum[2] = i;
-			tri[ep[i][j]].push_back(idum);
+			trisize[ep[i][j]] += 1;
 		}
 	}
 	//sort neighbouring vertices
 	//calculate volume (geometry factor)
-	const unsigned int gres = 50; // = dr/dr_grid
+	const unsigned int gres = 10; // = dr/dr_grid
 	const unsigned int gsize = gres*2+1; //makes sure that grid is large enough
-	const double gdr = dr/(double)gres;
-	double vgrid;
-	vector <vector <vector <double> > > cvec;
-	vector <double> avnorm;
-	vector <bool> first;
-#ifdef debug
-	vector <vector <double> > debug;
-	vector <double> debug2;
+	const float gdr = dr/(float)gres;
+	float vgrid;
+	float ***cvec;
+	float avnorm[3];
+	bool *first;
+#ifdef bdebug
+	vector <vector <float> > debug;
+	vector <float> debug2;
 #endif
-	double vnorm;
-	double eps=gdr*1e-4;
+	float vnorm;
+	float eps=gdr*1e-4;
 	bool closed;
 	for(unsigned int i=0; i<nvert; i++){
+		//initialize variables
 		closed = true;
-		unsigned int tris = tri[i].size();
-		cvec.resize(tris);
-		avnorm.resize(3);
-		first.resize(tris);
+		int **tri;
+		unsigned int tris = trisize[i];
+		cvec = new float**[tris];
+		tri = new int*[tris];
+		first = new bool[tris];
 		for(unsigned int j=0; j<tris; j++){
-			cvec[j].resize(12);
-			if(j<3) avnorm[j] = 0.;
 			first[j] = true;
-			for(unsigned int k=0; k<12; k++){
-				cvec[j][k].resize(3);
+			tri[j] = new int[3];
+			cvec[j] = new float*[12];
+			for(unsigned int k=0; k<12; k++) cvec[j][k] = new float[3];
+		}
+		for(unsigned int j=0; j<3; j++) avnorm[j] = 0.;
+		//find connected faces
+		unsigned int itris = 0;
+		for(unsigned int j=0; j<nbe; j++){
+			for(unsigned int k=0; k<3; k++){
+				if(ep[j][k] == i){
+					tri[itris][0] = ep[j][(k+1)%3];
+					tri[itris][1] = ep[j][(k+2)%3];
+					tri[itris][2] = j;
+					itris++;
+				}
 			}
 		}
+		//try to put neighbouring faces next to each other
 		for(unsigned int j=0; j<tris; j++){
 			for(unsigned int k=j+1; k<tris; k++){
-				if(tri[i][j][1] == tri[i][k][0]){
+				if(tri[j][1] == tri[k][0]){
 					if(k!=j+1){
-						idum = tri[i][j+1];
-						tri[i][j+1] = tri[i][k];
-						tri[i][k] = idum;
+						for(int l=0; l<3; l++){
+							iduma[l] = tri[j+1][l];
+							tri[j+1][l] = tri[k][l];
+							tri[k][l] = iduma[l];
+						}
 					}
 					break;
 				}
-				if(tri[i][j][1] == tri[i][k][1]){
-					idum[0] = tri[i][k][1];
-					idum[1] = tri[i][k][0];
-					idum[2] = tri[i][k][2];
-					tri[i][k] = tri[i][j+1];
-					tri[i][j+1] = idum;
+				if(tri[j][1] == tri[k][1]){
+					iduma[0] = tri[k][1];
+					iduma[1] = tri[k][0];
+					iduma[2] = tri[k][2];
+					for(int l=0; l<3; l++){
+						tri[k][l] = tri[j+1][l];
+						tri[j+1][l] = iduma[l];
+					}
 					break;
 				}
 				if(k==tris-1) closed = false;
 			}
 		}
-		if(tri[i][0][0] != tri[i][tris-1][1]){
+		if(tri[0][0] != tri[tris-1][1]){
 			closed = false;
 		}
 		vola[i] = 0.;
-		double sp;
+		float sp;
+		//start big loop over all numerical integration points
 		for(unsigned int k=0; k<gsize; k++){
 		for(unsigned int l=0; l<gsize; l++){
 		for(unsigned int m=0; m<gsize; m++){
 			int ik = k-(gsize-1)/2;
 			int il = l-(gsize-1)/2;
 			int im = m-(gsize-1)/2;
-			double px = ((double)ik)*gdr;
-			double py = ((double)il)*gdr;
-			double pz = ((double)im)*gdr;
+			float px = ((float)ik)*gdr;
+			float py = ((float)il)*gdr;
+			float pz = ((float)im)*gdr;
 			vgrid = 0.;
 			for(unsigned int j=0; j<tris; j++){
 				//create cubes
-				if(k+l+m==0){ //AM FIXME this only works if this is never set (vgrid = 0) which should most of the time be the case but is no good practise
+				if(k+l+m==0){
 					//setting up cube directions
-					for(unsigned int n=0; n<3; n++) cvec[j][2][n] = norm[tri[i][j][2]][n]; //normal of boundary element
+					for(unsigned int n=0; n<3; n++) cvec[j][2][n] = norm[tri[j][2]][n]; //normal of boundary element
 					vnorm = 0.;
 					for(unsigned int n=0; n<3; n++){
-						cvec[j][0][n] = pos[tri[i][j][0]][n]-pos[i][n]; //edge 1
-						if(per[n]&&fabs(cvec[j][0][n])>2*dr)	cvec[j][0][n] += sgn(cvec[j][0][n])*(-dmax[n]+dmin[n]); //periodicty
+						cvec[j][0][n] = posa[tri[j][0]][n]-posa[i][n]; //edge 1
+						if(per[n]&&fabs(cvec[j][0][n])>2*dr)	cvec[j][0][n] += sgn(cvec[j][0][n])*(-dmax[n]+dmin[n]); //periodicity
 						vnorm += pow(cvec[j][0][n],2);
 					}
 					vnorm = sqrt(vnorm);
@@ -403,10 +448,10 @@ int main(int argc, char* argv[]){
 					for(unsigned int n=0; n<3; n++)	cvec[j][1][n] = cvec[j][0][(n+1)%3]*cvec[j][2][(n+2)%3]-cvec[j][0][(n+2)%3]*cvec[j][2][(n+1)%3]; //cross product of normal and edge1
 					vnorm = 0.;
 					for(unsigned int n=0; n<3; n++){
-						cvec[j][3][n] = pos[tri[i][j][1]][n]-pos[i][n]; //edge 2
-						if(per[n]&&fabs(cvec[j][3][n])>2*dr)	cvec[j][3][n] += sgn(cvec[j][3][n])*(-dmax[n]+dmin[n]); //periodicty
+						cvec[j][3][n] = posa[tri[j][1]][n]-posa[i][n]; //edge 2
+						if(per[n]&&fabs(cvec[j][3][n])>2*dr)	cvec[j][3][n] += sgn(cvec[j][3][n])*(-dmax[n]+dmin[n]); //periodicity
 						vnorm += pow(cvec[j][3][n],2);
-						avnorm[n] -= norm[tri[i][j][2]][n];
+						avnorm[n] -= norma[tri[j][2]][n];
 					}
 					vnorm = sqrt(vnorm);
 					for(unsigned int n=0; n<3; n++) cvec[j][3][n] /= vnorm; 
@@ -420,38 +465,47 @@ int main(int argc, char* argv[]){
 				}
 				if((incube[0] && incube[1] && incube[2]) || (incube[2] && incube[3] && incube[4])){
 					vgrid = 1.;
-					break;
+#ifdef bdebug
+					if(i==0){ // && j==tris-1){
+						ddum[0] = px+posa[i][0];
+						ddum[1] = py+posa[i][1];
+						ddum[2] = pz+posa[i][2];
+						//cout << ddum[0] << " " << ddum[1] << " " << ddum[2] << endl;
+						debug.push_back(ddum);
+						debug2.push_back(vgrid);
+					}
+#endif
+					if(k+l+m!=0) break; //makes sure that in the first grid point we loop over all triangles j s.t. values are initialized correctly.
 				}
 			}
 			//end create cubes
 			//remove points based on planes (voronoi diagram & walls)
-			double tvec[3][3];
+			float tvec[3][3];
 			for(unsigned int j=0; j<tris; j++){
 				if(vgrid<eps) break; //gridpoint already empty
 				if(first[j]){
 					first[j] = false;
 					//set up plane normals and points
 					for(unsigned int n=0; n<3; n++){
-						cvec[j][5][n] = pos[tri[i][j][0]][n]-pos[i][n]; //normal of plane voronoi
-						if(per[n]&&fabs(cvec[j][5][n])>2*dr)	cvec[j][5][n] += sgn(cvec[j][5][n])*(-dmax[n]+dmin[n]); //periodicty
-						cvec[j][6][n] = pos[i][n]+cvec[j][5][n]/2.; //position of plane voronoi
+						cvec[j][5][n] = posa[tri[j][0]][n]-posa[i][n]; //normal of plane voronoi
+						if(per[n]&&fabs(cvec[j][5][n])>2*dr)	cvec[j][5][n] += sgn(cvec[j][5][n])*(-dmax[n]+dmin[n]); //periodicity
+						cvec[j][6][n] = posa[i][n]+cvec[j][5][n]/2.; //position of plane voronoi
 						tvec[0][n] = cvec[j][5][n]; // edge 1
-						tvec[1][n] = pos[tri[i][j][1]][n]-pos[i][n]; // edge 2
-						if(per[n]&&fabs(tvec[1][n])>2*dr)	tvec[1][n] += sgn(tvec[1][n])*(-dmax[n]+dmin[n]); //periodicty
+						tvec[1][n] = posa[tri[j][1]][n]-posa[i][n]; // edge 2
+						if(per[n]&&fabs(tvec[1][n])>2*dr)	tvec[1][n] += sgn(tvec[1][n])*(-dmax[n]+dmin[n]); //periodicity
 						if(!closed){
 							cvec[j][7][n] = tvec[1][n]; //normal of plane voronoi 2
-							cvec[j][8][n] = pos[i][n]+cvec[j][7][n]/2.; //position of plane voronoi 2
+							cvec[j][8][n] = posa[i][n]+cvec[j][7][n]/2.; //position of plane voronoi 2
 						}
 						tvec[2][n] = avnorm[n]; // negative average normal
 					}
 					for(unsigned int n=0; n<3; n++){
 						for(unsigned int k=0; k<3; k++){
 							cvec[j][k+9][n] = tvec[k][(n+1)%3]*tvec[(k+1)%3][(n+2)%3]-tvec[k][(n+2)%3]*tvec[(k+1)%3][(n+1)%3]; //normals of tetrahedron planes
-							//if(i==48) cout << cvec[j][k+9][n] << " " << n << " " << k << endl;
 						}
 					}
 					sp = 0.;
-					for(unsigned int n=0; n<3; n++) sp += norm[tri[i][j][2]][n]*cvec[j][9][n]; //test whether normals point inward tetrahedron, if no flip normals
+					for(unsigned int n=0; n<3; n++) sp += norm[tri[j][2]][n]*cvec[j][9][n]; //test whether normals point inward tetrahedron, if no flip normals
 					if(sp > 0.){
 						for(unsigned int k=0; k<3; k++){
 							for(unsigned int n=0; n<3; n++)	cvec[j][k+9][n] *= -1.;
@@ -460,9 +514,9 @@ int main(int argc, char* argv[]){
 				}
 			  //remove unwanted points and sum up for volume
 				//voronoi plane
-				tvec[0][0] = px + pos[i][0] - cvec[j][6][0];
-				tvec[0][1] = py + pos[i][1] - cvec[j][6][1];
-				tvec[0][2] = pz + pos[i][2] - cvec[j][6][2];
+				tvec[0][0] = px + posa[i][0] - cvec[j][6][0];
+				tvec[0][1] = py + posa[i][1] - cvec[j][6][1];
+				tvec[0][2] = pz + posa[i][2] - cvec[j][6][2];
 				sp = 0.;
 				for(unsigned int n=0; n<3; n++) sp += tvec[0][n]*cvec[j][5][n];
 				if(sp>0.+eps){
@@ -474,9 +528,9 @@ int main(int argc, char* argv[]){
 				}
 				//voronoi plane 2
 				if(!closed){
-					tvec[0][0] = px + pos[i][0] - cvec[j][8][0];
-					tvec[0][1] = py + pos[i][1] - cvec[j][8][1];
-					tvec[0][2] = pz + pos[i][2] - cvec[j][8][2];
+					tvec[0][0] = px + posa[i][0] - cvec[j][8][0];
+					tvec[0][1] = py + posa[i][1] - cvec[j][8][1];
+					tvec[0][2] = pz + posa[i][2] - cvec[j][8][2];
 					sp = 0.;
 					for(unsigned int n=0; n<3; n++) sp += tvec[0][n]*cvec[j][7][n];
 					if(sp>0.+eps){
@@ -507,31 +561,32 @@ int main(int argc, char* argv[]){
 				}
 				if(vgrid < eps) break;
 				if(j==tris-1)	vola[i] += vgrid;
-#ifdef debug
-					if(i==1 && j==tris-1){
-						ddum[0] = px+pos[i][0];
-						ddum[1] = py+pos[i][1];
-						ddum[2] = pz+pos[i][2];
-						//cout << ddum[0] << " " << ddum[1] << " " << ddum[2] << endl;
-						debug.push_back(ddum);
-						debug2.push_back(vgrid);
-					}
-#endif
 			}
 		}
 		}
 		}
-		vola[i] *= pow(dr/(double)gres,3);
+		vola[i] *= pow(dr/(float)gres,3);
+		delete [] first;
+		for(unsigned int j=0; j<tris; j++){
+			for(unsigned int k=0; k<12; k++) delete [] cvec[j][k];
+			delete [] cvec[j];
+			delete [] tri[j];
+		}
+		delete [] cvec;
+		delete [] tri;
 	}
-	vector <double> vol;
+	//host
+	vector <float> vol;
 	for(unsigned int i=0; i<nvert; i++) vol.push_back(vola[i]);
 	cout << " [OK]" << endl;
 
 	//setting up fluid particles
 	cout << "Defining fluid particles in a box ..." << endl;
 	bool set = true;
-	double fluid_vol = pow(dr,3);
+	float **fpos;
+	float fluid_vol = pow(dr,3);
 	unsigned int nfluid = 0;
+	unsigned int maxf = 0;
 	eps = 1e-4*dr;
 	while(set){
 		xmin = xmax = ymin = ymax = zmin = zmax = 0.;
@@ -547,16 +602,27 @@ int main(int argc, char* argv[]){
 			cout << "Fluid particle definition ... [FAILED]" << endl;
 			return FLUID_NDEF;
 		}
+		maxf = (floor((xmax+eps-xmin)/dr)+1)*(floor((ymax+eps-ymin)/dr)+1)*(floor((zmax+eps-zmin)/dr)+1);
+		fpos = new float*[maxf];
+		for(unsigned int i=0; i<maxf; i++) fpos[i] = new float[3];
+		//device
+		//this can be a bit more complex in order to fill complex geometries
 		for(int i=0; i<=floor((xmax+eps-xmin)/dr); i++){
 		for(int j=0; j<=floor((ymax+eps-ymin)/dr); j++){
 		for(int k=0; k<=floor((zmax+eps-zmin)/dr); k++){
-			ddum[0] = xmin + (double)i*dr;
-			ddum[1] = ymin + (double)j*dr;
-			ddum[2] = zmin + (double)k*dr;
-			pos.push_back(ddum);
-			vol.push_back(fluid_vol);
+			fpos[nfluid][0] = xmin + (float)i*dr;
+			fpos[nfluid][1] = ymin + (float)j*dr;
+			fpos[nfluid][2] = zmin + (float)k*dr;
 			nfluid++;
 		}}}
+		//host
+		for(unsigned int i=0; i<nfluid; i++){
+			ddum[0] = fpos[i][0];
+			ddum[1] = fpos[i][1];
+			ddum[2] = fpos[i][2];
+			pos.push_back(ddum);
+			vol.push_back(fluid_vol);
+		}
 		cont = 'n';
 		do{
 			if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
@@ -570,7 +636,7 @@ int main(int argc, char* argv[]){
 	//prepare output structure
 	cout << "Creating and initializing of output buffer ...";
 	OutBuf *buf;
-#ifndef debug
+#ifndef bdebug
 	buf = new OutBuf[pos.size()];
 #else
 	buf = new OutBuf[pos.size()+debug.size()];
@@ -636,7 +702,7 @@ int main(int argc, char* argv[]){
 		buf[k].ep3 = nfluid+ep[i-nvert][2];
 		k++;
 	}
-#ifdef debug
+#ifdef bdebug
 	//debug
 	for(unsigned int i=0; i<debug.size(); i++){
 		buf[k].x = debug[i][0];
@@ -665,7 +731,7 @@ int main(int argc, char* argv[]){
 	int flen = strlen(argv[1]);
 	char *fname = new char[flen+5];
 	const char *fend = "h5sph";
-	double time = 0.;
+	float time = 0.;
 	fname[0] = '0';
 	fname[1] = '.';
 	strncpy(fname+2, argv[1], flen-3);
@@ -681,7 +747,7 @@ int main(int argc, char* argv[]){
 	return 0;
 }
 
-int hdf5_output (OutBuf *buf, int len, const char *filename, double *timevalue){
+int hdf5_output (OutBuf *buf, int len, const char *filename, float *timevalue){
 	hid_t		mem_type_id, loc_id, dataset_id, file_space_id, mem_space_id, xfer_plist_id;
 	hsize_t	count[1], offset[1], dim[] = {len};
 	herr_t	status;
@@ -692,14 +758,14 @@ int hdf5_output (OutBuf *buf, int len, const char *filename, double *timevalue){
 	file_space_id = H5Screate_simple(1, dim, NULL);
 	mem_type_id = H5Tcreate(H5T_COMPOUND, sizeof(OutBuf));
 
-	H5Tinsert(mem_type_id, "Coords_0"       , HOFFSET(OutBuf, x),       H5T_NATIVE_DOUBLE);
-	H5Tinsert(mem_type_id, "Coords_1"       , HOFFSET(OutBuf, y),       H5T_NATIVE_DOUBLE);
-	H5Tinsert(mem_type_id, "Coords_2"       , HOFFSET(OutBuf, z),       H5T_NATIVE_DOUBLE);
-	H5Tinsert(mem_type_id, "Normal_0"       , HOFFSET(OutBuf, nx),      H5T_NATIVE_DOUBLE);
-	H5Tinsert(mem_type_id, "Normal_1"       , HOFFSET(OutBuf, ny),      H5T_NATIVE_DOUBLE);
-	H5Tinsert(mem_type_id, "Normal_2"       , HOFFSET(OutBuf, nz),      H5T_NATIVE_DOUBLE);
-	H5Tinsert(mem_type_id, "Volume"         , HOFFSET(OutBuf, vol),     H5T_NATIVE_DOUBLE);
-	H5Tinsert(mem_type_id, "Surface"        , HOFFSET(OutBuf, surf),    H5T_NATIVE_DOUBLE);
+	H5Tinsert(mem_type_id, "Coords_0"       , HOFFSET(OutBuf, x),       H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "Coords_1"       , HOFFSET(OutBuf, y),       H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "Coords_2"       , HOFFSET(OutBuf, z),       H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "Normal_0"       , HOFFSET(OutBuf, nx),      H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "Normal_1"       , HOFFSET(OutBuf, ny),      H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "Normal_2"       , HOFFSET(OutBuf, nz),      H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "Volume"         , HOFFSET(OutBuf, vol),     H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "Surface"        , HOFFSET(OutBuf, surf),    H5T_NATIVE_FLOAT);
 	H5Tinsert(mem_type_id, "ParticleType"   , HOFFSET(OutBuf, kpar),    H5T_NATIVE_INT);
 	H5Tinsert(mem_type_id, "FluidType"      , HOFFSET(OutBuf, kfluid),  H5T_NATIVE_INT);
 	H5Tinsert(mem_type_id, "KENT"           , HOFFSET(OutBuf, kent),    H5T_NATIVE_INT);
