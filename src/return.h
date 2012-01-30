@@ -1,3 +1,6 @@
+#ifndef RETURN_H
+#define RETURN_H
+
 #define STL_NOT_BINARY -1
 #define NO_FILE -2
 #define FILE_NOT_OPEN -3
@@ -8,3 +11,5 @@
 #define SORT_NOT_CLOSED -8
 #define NO_PER_VERT -9
 #define NO_UNLINK -10
+
+#endif

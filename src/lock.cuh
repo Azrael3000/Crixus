@@ -1,6 +1,8 @@
 #ifndef LOCK_CUH
 #define LOCK_CUH
 
+#include "cuda_local.cuh"
+
 class Lock {
 	private:
 		//variables
@@ -10,8 +12,8 @@ class Lock {
 		//functions
 		Lock (void){
 			int state=0;
-			HANDLE_ERROR( cudaMalloc((void **) &mutex, sizeof(int)) );
-			HANDLE_ERROR( cudaMemcpy(mutex, &state, sizeof(int), cudaMemcpyHostToDevice) );
+			CUDA_SAFE_CALL( cudaMalloc((void **) &mutex, sizeof(int)) );
+			CUDA_SAFE_CALL( cudaMemcpy(mutex, &state, sizeof(int), cudaMemcpyHostToDevice) );
 		}
 	
 		~Lock (void){
@@ -25,6 +27,6 @@ class Lock {
 		__device__ void unlock (void){
 			atomicExch(mutex,0);
 		}
-}
+};
 
 #endif

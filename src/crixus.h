@@ -1,3 +1,6 @@
+#ifndef CRIXUS_H
+#define CRIXUS_H
+
 #define DATASETNAME "Compound"
 #define sgn(x) (float)((x>0.)-(x<0.))
 
@@ -7,3 +10,7 @@ struct OutBuf{
 };
 
 int hdf5_output (OutBuf *buf, int len, const char *filename, float *timevalue);
+
+int crixus_main(int, char**);
+
+#endif
