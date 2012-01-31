@@ -26,7 +26,7 @@ CUFILES_sm_xx :=\
 CU_DEPS =\
   src/crixus_d.cuh\
   src/lock.cuh\
-  src/cuda_local.cuh
+  src/cuda_local.cuh\
 
 USECUDPP = 1
 USEGLLIB = 1

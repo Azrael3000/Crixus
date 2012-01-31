@@ -3,12 +3,10 @@
 
 #include "cuda_local.cuh"
 
-class Lock {
-	private:
+struct Lock {
 		//variables
 		int *mutex;
 
-	public:
 		//functions
 		Lock (void){
 			int state=0;

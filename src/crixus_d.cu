@@ -59,15 +59,15 @@ __global__ void set_bound_elem (uf4 *pos, uf4 *norm, float *surf, ui4 *ep, unsig
 	__syncthreads();
 
 	int j = blockDim.x/2;
-	while (i!=0){
+	while (j!=0){
 		if(i_c < j){
-			if(xminp_c[i_c+i] < xminp_c[i_c]){
-				xminp_c[i_c] = xminp_c[i_c+i];
-				nminp_c[i_c] = nminp_c[i_c+i];
+			if(xminp_c[i_c+j] < xminp_c[i_c]){
+				xminp_c[i_c] = xminp_c[i_c+j];
+				nminp_c[i_c] = nminp_c[i_c+j];
 			}
-			if(xminn_c[i_c+i] < xminn_c[i_c]){
-				xminn_c[i_c] = xminn_c[i_c+i];
-				nminn_c[i_c] = nminn_c[i_c+i];
+			if(xminn_c[i_c+j] < xminn_c[i_c]){
+				xminn_c[i_c] = xminn_c[i_c+j];
+				nminn_c[i_c] = nminn_c[i_c+j];
 			}
 		}
 		__syncthreads();
