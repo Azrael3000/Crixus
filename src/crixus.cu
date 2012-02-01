@@ -108,7 +108,6 @@ int crixus_main(int argc, char** argv){
 	unsigned int nvert, nbe;
 	vector<unsigned int> idum;
 	vector<float> ddum;
-	int iduma[3];
 	for(int i=0;i<3;i++){
 		ddum.push_back(0.);
 		idum.push_back(0);
@@ -234,10 +233,10 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy(&xminn, xminn_d, sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy(&nminp, nminp_d, sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy(&nminn, nminn_d, sizeof(float), cudaMemcpyDeviceToHost) );
-	cudaFree (xminp_d)
-	cudaFree (xminn_d)
-	cudaFree (nminp_d)
-	cudaFree (nminn_d)
+	cudaFree (xminp_d);
+	cudaFree (xminn_d);
+	cudaFree (nminp_d);
+	cudaFree (nminn_d);
 	//host
 	cout << " [OK]" << endl;
 	cout << "\n\tNormals information:" << endl;
@@ -259,17 +258,21 @@ int crixus_main(int argc, char** argv){
 		cout << " [OK]" << endl;
 	}
 
+	//init for gpu sync
+	int *sync_id, *sync_od;
+	initsync(sync_id, sync_od, numBlocks);
+
 	//calculate volume of vertex particles
 	float4 dmin = {xmin,ymin,zmin,0.};
 	float4 dmax = {xmax,ymax,zmax,0.};
 	bool per[3] = {false, false, false};
 	int *newlink;
-	uf4 *dmin_d, dmax_d;
+	uf4 *dmin_d, *dmax_d;
 	CUDA_SAFE_CALL( cudaMalloc((void **) &newlink, nvert*sizeof(float)) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &dmin_d ,       sizeof(uf4  )) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &dmax_d ,       sizeof(uf4  )) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d, (void *) dmin, sizeof(float4), cudaMemcpyHostToDevice) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d, (void *) dmax, sizeof(float4), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d, (void *) &dmin, sizeof(float4), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d, (void *) &dmax, sizeof(float4), cudaMemcpyHostToDevice) );
 	for(unsigned int idim=0; idim<3; idim++){
 		cont='n';
 		do{
@@ -291,15 +294,11 @@ int crixus_main(int argc, char** argv){
 			numBlocks = (int) ceil((float)max(nvert,nbe)/(float)numThreads);
 			numBlocks = min(numBlocks,50000);
 
-			//init for gpu sync
-			int *sync_id, *sync_od;
-			initsync(sync_id, sync_od, numBlocks);
-
-			int err = periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, dmax_d, dmin_d, dr, sync_id, sync_od, newlink, idim);
+			periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, dmax_d, dmin_d, dr, sync_id, sync_od, newlink, idim);
 
 			CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d, (nvert+nbe)*sizeof(uf4), cudaMemcpyDeviceToHost) );
 			CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d ,         nbe*sizeof(ui4), cudaMemcpyHostToDevice) );
-			if(err!=0) return err;
+			//if(err!=0) return err;
 			//host
 			cout << " [OK]" << endl;
 		} 
@@ -307,18 +306,23 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaFree(newlink) );
 
 	cout << "Calculating volume of vertex particles ...";
+	float eps=dr/(float)gres*1e-4;
 	int *trisize;
 	float *vol_d;
+  bool *per_d;
 	CUDA_SAFE_CALL( cudaMalloc((void **) &trisize, nvert*sizeof(int  )) );
-	CUDA_SAFE_CALL( cudaMalloc((void **) &vol_d  ,       sizeof(float)) );
-	numBlocks = (int) ceil((float)max(nvert)/(float)numThreads);
+	CUDA_SAFE_CALL( cudaMalloc((void **) &vol_d  , nvert*sizeof(float)) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &per_d  ,     3*sizeof(bool )) );
+	numBlocks = (int) ceil((float)nvert/(float)numThreads);
 	numBlocks = min(numBlocks,50000);
 
-	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d sync_i, sync_o, nvert, nbe, dr, eps);
+	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, sync_id, sync_od, nvert, nbe, dr, eps, per_d);
 
+  //bug here, but what?
 	CUDA_SAFE_CALL( cudaMemcpy((void *) vola,(void *) vol_d, nvert*sizeof(float), cudaMemcpyDeviceToHost) );
 	cudaFree( trisize );
 	cudaFree( vol_d   );
+	cudaFree( per_d   );
 
 	cout << " [OK]" << endl;
 
@@ -333,7 +337,7 @@ int crixus_main(int argc, char** argv){
 	eps = 1e-4*dr;
 	uf4 **fpos;
 	fpos = new uf4*[maxfbox];
-	nfluid_in_box = new int[maxfbox];
+	nfluid_in_box = new unsigned int[maxfbox];
 	for(int i=0; i<maxfbox; i++)
 		nfluid_in_box[i] = 0;
 	int *nfib_d;
@@ -363,7 +367,7 @@ int crixus_main(int argc, char** argv){
 		numBlocks = (int) ceil((float)maxf/(float)numThreads);
 		numBlocks = min(numBlocks,50000);
 
-		fill_fluid<<<numBlocks, numThreads>>> (fpos_d, xmin, xmax, ymin, ymax, zmin, zmax, eps, dr, nfib_d, fmax, lock);
+		fill_fluid<<<numBlocks, numThreads>>> (fpos_d, xmin, xmax, ymin, ymax, zmin, zmax, eps, dr, nfib_d, maxf, lock);
 		
 		CUDA_SAFE_CALL( cudaMemcpy((void *) fpos[nfbox], (void *) fpos_d, maxf*sizeof(uf4), cudaMemcpyDeviceToHost) );
 		CUDA_SAFE_CALL( cudaMemcpy((void *) nfib       , (void *) nfib_d,      sizeof(int), cudaMemcpyDeviceToHost) );
@@ -397,7 +401,7 @@ int crixus_main(int argc, char** argv){
 	int k=0;
 	//fluid particles
 	for(unsigned int j=0; j<nfbox; j++){
-		for(unsigned int i=0; i<nfuid_in_box[j]; i++){
+		for(unsigned int i=0; i<nfluid_in_box[j]; i++){
 			if(fpos[j][i].a[0] < -1e9)
 				continue;
 			buf[k].x = fpos[j][i].a[0];

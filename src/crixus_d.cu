@@ -5,6 +5,7 @@
 #include "lock.cuh"
 #include "crixus_d.cuh"
 #include "return.h"
+#include "crixus.h"
 
 __global__ void set_bound_elem (uf4 *pos, uf4 *norm, float *surf, ui4 *ep, unsigned int nbe, float *xminp, float *xminn, float *nminp, float*nminn, Lock lock, int nvert)
 {
@@ -93,12 +94,13 @@ __global__ void swap_normals (uf4 *norm, int nbe)
 {
 	unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
 	while(i<nbe){
-		norm[i].a[j] *= -1.;
+    for(int j=0; j<3; j++)
+		  norm[i].a[j] *= -1.;
 		i += blockDim.x*gridDim.x;
 	}
 }
 
-__global__ int periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *dmax, uf4 *dmin, float dr, int *sync_i, int *sync_o, int *newlink, int idim)
+__global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *dmax, uf4 *dmin, float dr, int *sync_i, int *sync_o, int *newlink, int idim)
 {
 	//find corresponding vertices
 	unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
@@ -109,14 +111,14 @@ __global__ int periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *dm
 
 	gpu_sync(sync_i, sync_o);
 
-	int i = blockIdx.x*blockDim.x+threadIdx.x;
+	i = blockIdx.x*blockDim.x+threadIdx.x;
 	while(i<nvert){
-		if(fabs(pos[i].a[idim]-dmax.a[idim])<1e-5*dr){
+		if(fabs(pos[i].a[idim]-(*dmax).a[idim])<1e-5*dr){
 			for(unsigned int j=0; j<nvert; j++){
 				if(j==i) continue;
-				if(sqrt(pow(pos[i].a[(idim+1)%3]-pos[j].a[(idim+1)%3],2.)+ \
-				        pow(pos[i].a[(idim+2)%3]-pos[j].a[(idim+2)%3],2.)+ \
-								pow(pos[j].a[idim      ]-  dmin.a[idim]      ,2.) ) < 1e-4*dr){
+				if(sqrt(pow(pos[i].a[(idim+1)%3]-pos[j].a[(idim+1)%3],(float)2.)+ \
+				        pow(pos[i].a[(idim+2)%3]-pos[j].a[(idim+2)%3],(float)2.)+ \
+								pow(pos[j].a[idim      ]- (*dmin).a[idim]      ,(float)2.) ) < 1e-4*dr){
 					newlink[i] = j;
 					//"delete" vertex
 					for(int k=0; k<3; k++)
@@ -124,8 +126,8 @@ __global__ int periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *dm
 					break;
 				}
 				if(j==nvert-1){
-					cout << " [FAILED]" << endl;
-					return NO_PER_VERT;
+					// cout << " [FAILED]" << endl;
+					return; //NO_PER_VERT;
 				}
 			}
 		}
@@ -144,10 +146,10 @@ __global__ int periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *dm
 		i += blockDim.x*gridDim.x;
 	}
 
-	return 0;
+	return;
 }
 
-__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, float *dmin_d, float *dmax_d, int *sync_i, int *sync_o, int nvert, int nbe, float dr, float eps)
+__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int *sync_i, int *sync_o, int nvert, int nbe, float dr, float eps, bool *per)
 {
 	//get neighbouring vertices
 	int i = blockIdx.x*blockDim.x+threadIdx.x;
@@ -173,12 +175,11 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 	unsigned int gsize = gres*2+1; //makes sure that grid is large enough
 	float gdr = dr/(float)gres;
 	float vgrid;
-	float ***cvec;
-	int **tri;
+	float cvec[trimax][12][3];
+	int tri[trimax][3];
 	float avnorm[3];
-	bool *first;
+	bool first[trimax];
 	float vnorm;
-	float eps=gdr*1e-4;
 	bool closed;
 	int iduma[3];
 	float sp;
@@ -196,16 +197,12 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 		closed = true;
 		vol[i] = 0.;
 		unsigned int tris = trisize[i];
-		cvec  = new float**[tris];
-		tri   = new int   *[tris];
-		first = new bool   [tris];
-		for(unsigned int j=0; j<tris; j++){
+    if(tris > trimax)
+      return; //exception needs to be thrown
+		for(unsigned int j=0; j<tris; j++)
 			first[j] = true;
-			tri[j] = new int[3];
-			cvec[j] = new float*[12];
-			for(unsigned int k=0; k<12; k++) cvec[j][k] = new float[3];
-		}
-		for(unsigned int j=0; j<3; j++) avnorm[j] = 0.;
+		for(unsigned int j=0; j<3; j++)
+      avnorm[j] = 0.;
 
 		//find connected faces
 		unsigned int itris = 0;
@@ -269,7 +266,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 					vnorm = 0.;
 					for(unsigned int n=0; n<3; n++){
 						cvec[j][0][n] = pos[tri[j][0]].a[n]-pos[i].a[n]; //edge 1
-						if(per[n]&&fabs(cvec[j][0][n])>2*dr)	cvec[j][0][n] += sgn(cvec[j][0][n])*(-dmax[n]+dmin[n]); //periodicity
+						if(per[n]&&fabs(cvec[j][0][n])>2*dr)	cvec[j][0][n] += sgn(cvec[j][0][n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
 						vnorm += pow(cvec[j][0][n],2);
 					}
 					vnorm = sqrt(vnorm);
@@ -278,7 +275,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 					vnorm = 0.;
 					for(unsigned int n=0; n<3; n++){
 						cvec[j][3][n] = pos[tri[j][1]].a[n]-pos[i].a[n]; //edge 2
-						if(per[n]&&fabs(cvec[j][3][n])>2*dr)	cvec[j][3][n] += sgn(cvec[j][3][n])*(-dmax[n]+dmin[n]); //periodicity
+						if(per[n]&&fabs(cvec[j][3][n])>2*dr)	cvec[j][3][n] += sgn(cvec[j][3][n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
 						vnorm += pow(cvec[j][3][n],2);
 						avnorm[n] -= norm[tri[j][2]].a[n];
 					}
@@ -289,7 +286,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 				//filling vgrid
 				bool incube[5] = {false, false, false, false, false};
 				for(unsigned int n=0; n<5; n++){
-					sp = 0.
+					sp = 0.;
 					for(unsigned int o=0; o<3; o++) sp += gp[o]*cvec[j][n][o];
 					if(fabs(sp)<=dr/2.+eps) incube[n] = true;
 				}
@@ -309,11 +306,11 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 					//set up plane normals and points
 					for(unsigned int n=0; n<3; n++){
 						cvec[j][5][n] = pos[tri[j][0]].a[n]-pos[i].a[n]; //normal of plane voronoi
-						if(per[n]&&fabs(cvec[j][5][n])>2*dr)	cvec[j][5][n] += sgn(cvec[j][5][n])*(-dmax[n]+dmin[n]); //periodicity
+						if(per[n]&&fabs(cvec[j][5][n])>2*dr)	cvec[j][5][n] += sgn(cvec[j][5][n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
 						cvec[j][6][n] = pos[i].a[n]+cvec[j][5][n]/2.; //position of plane voronoi
 						tvec[0][n] = cvec[j][5][n]; // edge 1
 						tvec[1][n] = pos[tri[j][1]].a[n]-pos[i].a[n]; // edge 2
-						if(per[n]&&fabs(tvec[1][n])>2*dr)	tvec[1][n] += sgn(tvec[1][n])*(-dmax[n]+dmin[n]); //periodicity
+						if(per[n]&&fabs(tvec[1][n])>2*dr)	tvec[1][n] += sgn(tvec[1][n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
 						if(!closed){
 							cvec[j][7][n] = tvec[1][n]; //normal of plane voronoi 2
 							cvec[j][8][n] = pos[i].a[n]+cvec[j][7][n]/2.; //position of plane voronoi 2
@@ -388,16 +385,6 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 		//calculate volume
 		vol[i] *= pow(dr/(float)gres,3);
 
-		//free variables
-		for(unsigned int j=0; j<tris; j++){
-			for(unsigned int k=0; k<12; k++) delete [] cvec[j][k];
-			delete [] cvec[j];
-			delete [] tri[j];
-		}
-		delete [] cvec;
-		delete [] tri;
-		delete [] first;
-
 		i += blockDim.x*gridDim.x;
 	}
 }
@@ -412,7 +399,7 @@ __global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float
 	int tid = threadIdx.x;
 
 	nfib_tmp = 0;
-	id = blockIdx.x*blockDim.x+threadIdx.x;
+	int id = blockIdx.x*blockDim.x+threadIdx.x;
 	while(id<fmax){
 		i = id%idim;
 		tmp = id-i*idim;
@@ -429,7 +416,7 @@ __global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float
 
 	__syncthreads();
 
-	int j = blockDim.x/2;
+	j = blockDim.x/2;
 	while (j!=0){
 		if(tid < j)
 			nfib_cache[tid] += nfib_cache[tid+j];
@@ -437,12 +424,11 @@ __global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float
 		j /= 2;
 	}
 
-	if(i_c == 0){
+	if(tid == 0){
 		lock.lock();
 		*nfib += nfib_cache[0];
 		lock.unlock();
 	}
-}
 }
 
 //Implemented according to: Inter-Block GPU Communication via Fast Barrier Synchronization, Shucai Xiao and Wu-chun Feng, Department of Computer Science, Virginia Tech, 2009
@@ -480,17 +466,17 @@ __device__ void gpu_sync (int *sync_i, int *sync_o)
 		while (sync_o[bid] != 1)
 			;
 	}
-	__syncthreads;
+	__syncthreads();
 
 }
 
-__host__ void initsync (int *sync_id, int *cync_od, int numBlocks)
+__host__ void initsync (int *sync_id, int *sync_od, int numBlocks)
 {
 	int *sync_i;
 	sync_i = new int[numBlocks];
-	for(int i=0; i<numBlocks; i++) sync_i = 0;
+	for(int i=0; i<numBlocks; i++) sync_i[i] = 0;
 	CUDA_SAFE_CALL( cudaMalloc((void **) &sync_id, numBlocks*sizeof(int)) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &sync_od, numBlocks*sizeof(int)) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(float), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(int), cudaMemcpyHostToDevice) );
 }
 #endif
