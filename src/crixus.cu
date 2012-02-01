@@ -173,7 +173,7 @@ int crixus_main(int argc, char** argv){
 	vola  = new float [nvert];
 	surf  = new float [nbe]; //AM-TODO: could go to norma[3]
 	ep    = new ui4   [nbe];
-	for(unsigned int i=0; i<nvert+nbe; i++){
+	for(unsigned int i=0; i<max(nvert,nbe); i++){
 		if(i<nbe){
       for(int j=0; j<3; j++){
 		  	norma[i].a[j] = norm[i][j];
@@ -208,7 +208,6 @@ int crixus_main(int argc, char** argv){
 
 	//calculate surface and position of boundary elements
 	cout << "Calculating surface and position of boundary elements ...";
-  //device
 	int numThreads, numBlocks;
 	numThreads = threadsPerBlock;
 	numBlocks = (int) ceil((float)nbe/(float)numThreads);
@@ -235,12 +234,11 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy(&xminn, xminn_d, sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy(&nminp, nminp_d, sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy(&nminn, nminn_d, sizeof(float), cudaMemcpyDeviceToHost) );
+	cudaFree (xminp_d)
+	cudaFree (xminn_d)
+	cudaFree (nminp_d)
+	cudaFree (nminn_d)
 	//host
-	for(unsigned int i=nvert; i<nvert+nbe; i++){
-    for(int j=0; j<3; j++)
-		  ddum[j] = posa[i].a[j];
-		pos.push_back(ddum);
-	}
 	cout << " [OK]" << endl;
 	cout << "\n\tNormals information:" << endl;
 	cout << "\tPositive (n.(0,0,1)) minimum z: " << xminp << " (" << nminp << ")\n";
@@ -252,23 +250,26 @@ int crixus_main(int argc, char** argv){
 		cin >> cont;
 	}while(cont!='y' && cont!='n');
 	if(cont=='y'){
-		cout << "Swapping normals ..."; //could be done on the device but probably isn't necessary
-		for(unsigned int i=0; i<nbe; i++){
-      for(int j=0; j<3; j++){
-			  norm[i][j]    *= -1.;
-			  norma[i].a[j] *= -1.;
-      }
-		}
+		cout << "Swapping normals ...";
+		
+		swap_normals<<<numBlocks, numThreads>>> (norm_d, nbe);
+
+	  CUDA_SAFE_CALL( cudaMemcpy((void *) norma,(void *) norm_d, nbe*sizeof(uf4), cudaMemcpyDeviceToHost) );
+
 		cout << " [OK]" << endl;
 	}
 
 	//calculate volume of vertex particles
-	float dmin[3] = {xmin,ymin,zmin};
-	float dmax[3] = {xmax,ymax,zmax};
+	float4 dmin = {xmin,ymin,zmin,0.};
+	float4 dmax = {xmax,ymax,zmax,0.};
 	bool per[3] = {false, false, false};
 	int *newlink;
-	newlink = new int[nvert];
-	for(unsigned int i=0; i<nvert; i++) newlink[i] = -1;
+	uf4 *dmin_d, dmax_d;
+	CUDA_SAFE_CALL( cudaMalloc((void **) &newlink, nvert*sizeof(float)) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &dmin_d ,       sizeof(uf4  )) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &dmax_d ,       sizeof(uf4  )) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d, (void *) dmin, sizeof(float4), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d, (void *) dmax, sizeof(float4), cudaMemcpyHostToDevice) );
 	for(unsigned int idim=0; idim<3; idim++){
 		cont='n';
 		do{
@@ -287,314 +288,57 @@ int crixus_main(int argc, char** argv){
 		if(cont=='y'){
 			per[idim] = true;
 			cout << "Updating links ...";
-			//device
-			for(unsigned int i=0; i<nvert; i++){
-				if(fabs(posa[i].a[idim]-dmax[idim])<1e-5*dr){
-					for(unsigned int j=0; j<nvert; j++){
-						if(j==i) continue;
-						if(sqrt(pow(posa[i].a[(idim+1)%3]-posa[j].a[(idim+1)%3],2.)+ \
-						        pow(posa[i].a[(idim+2)%3]-posa[j].a[(idim+2)%3],2.)+ \
-										pow(posa[j].a[idim      ]-dmin[idim]             ,2.) ) < 1e-4*dr){
-							newlink[i] = j;
-							break;
-						}
-						if(j==nvert-1){
-							cout << " [FAILED]" << endl;
-							return NO_PER_VERT;
-						}
-					}
-				}
-			}
-			for(unsigned int i=0; i<nbe; i++){
-        for(int j=0; j<3; j++){
-				  if(newlink[ep[i].a[j]] != -1)
-            ep[i].a[j] = newlink[ep[i].a[j]];
-        }
-			}
-			unsigned int onvert = nvert;
-			for(int i=onvert-1; i>=0; i--){
-				if(newlink[i] != -1){
-					for(unsigned int j=i+1; j<nvert+nbe; j++){
-            for(int k=0; k<3; k++)
-						  posa[i-1].a[k] = posa[i].a[k];
-					}
-					nvert--;
-					for(unsigned int j=0; j<nbe; j++){
-						for(unsigned int k=0; k<3; k++){
-							if(ep[j].a[k]==i){
-								cout << " [FAILED]" << endl;
-								return NO_UNLINK;
-							}
-							if(ep[j].a[k]>i)
-                ep[j].a[k]--;
-						}
-					}
-				}
-			}
+			numBlocks = (int) ceil((float)max(nvert,nbe)/(float)numThreads);
+			numBlocks = min(numBlocks,50000);
+
+			//init for gpu sync
+			int *sync_id, *sync_od;
+			initsync(sync_id, sync_od, numBlocks);
+
+			int err = periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, dmax_d, dmin_d, dr, sync_id, sync_od, newlink, idim);
+
+			CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d, (nvert+nbe)*sizeof(uf4), cudaMemcpyDeviceToHost) );
+			CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d ,         nbe*sizeof(ui4), cudaMemcpyHostToDevice) );
+			if(err!=0) return err;
 			//host
 			cout << " [OK]" << endl;
 		} 
 	}
-	if(nvert+nbe != pos.size()){
-		pos.clear();
-		for(unsigned int i=0; i<nvert+nbe; i++){ //AM: posa should be made smaller as well, but not strictly necessary.
-      for(int j=0; j<3; j++)
-			  ddum[j] = posa[i].a[j];
-			pos.push_back(ddum);
-		}
-	}
+	CUDA_SAFE_CALL( cudaFree(newlink) );
+
 	cout << "Calculating volume of vertex particles ...";
-	//device
-	//get neighbouring vertices
-	unsigned int *trisize;
-	trisize = new unsigned int[nvert];
-	for(unsigned int i=0; i<nvert; i++) trisize[i] = 0;
-	for(unsigned int i=0; i<nbe; i++){
-		for(unsigned int j=0; j<3; j++){
-			trisize[ep[i].a[j]] += 1;
-		}
-	}
-	//sort neighbouring vertices
-	//calculate volume (geometry factor)
-	const unsigned int gres = 10; // = dr/dr_grid
-	const unsigned int gsize = gres*2+1; //makes sure that grid is large enough
-	const float gdr = dr/(float)gres;
-	float vgrid;
-	float ***cvec;
-	float avnorm[3];
-	bool *first;
-#ifdef bdebug
-	vector <vector <float> > debug;
-	vector <float> debug2;
-#endif
-	float vnorm;
-	float eps=gdr*1e-4;
-	bool closed;
-	for(unsigned int i=0; i<nvert; i++){
-		//initialize variables
-		closed = true;
-		int **tri;
-		unsigned int tris = trisize[i];
-		cvec = new float**[tris];
-		tri = new int*[tris];
-		first = new bool[tris];
-		for(unsigned int j=0; j<tris; j++){
-			first[j] = true;
-			tri[j] = new int[3];
-			cvec[j] = new float*[12];
-			for(unsigned int k=0; k<12; k++) cvec[j][k] = new float[3];
-		}
-		for(unsigned int j=0; j<3; j++) avnorm[j] = 0.;
-		//find connected faces
-		unsigned int itris = 0;
-		for(unsigned int j=0; j<nbe; j++){
-			for(unsigned int k=0; k<3; k++){
-				if(ep[j].a[k] == i){
-					tri[itris][0] = ep[j].a[(k+1)%3];
-					tri[itris][1] = ep[j].a[(k+2)%3];
-					tri[itris][2] = j;
-					itris++;
-				}
-			}
-		}
-		//try to put neighbouring faces next to each other
-		for(unsigned int j=0; j<tris; j++){
-			for(unsigned int k=j+1; k<tris; k++){
-				if(tri[j][1] == tri[k][0]){
-					if(k!=j+1){
-						for(int l=0; l<3; l++){
-							iduma[l] = tri[j+1][l];
-							tri[j+1][l] = tri[k][l];
-							tri[k][l] = iduma[l];
-						}
-					}
-					break;
-				}
-				if(tri[j][1] == tri[k][1]){
-					iduma[0] = tri[k][1];
-					iduma[1] = tri[k][0];
-					iduma[2] = tri[k][2];
-					for(int l=0; l<3; l++){
-						tri[k][l] = tri[j+1][l];
-						tri[j+1][l] = iduma[l];
-					}
-					break;
-				}
-				if(k==tris-1) closed = false;
-			}
-		}
-		if(tri[0][0] != tri[tris-1][1]){
-			closed = false;
-		}
-		vola[i] = 0.;
-		float sp;
-		//start big loop over all numerical integration points
-		for(unsigned int k=0; k<gsize; k++){
-		for(unsigned int l=0; l<gsize; l++){
-		for(unsigned int m=0; m<gsize; m++){
-			int ik = k-(gsize-1)/2;
-			int il = l-(gsize-1)/2;
-			int im = m-(gsize-1)/2;
-			float px = ((float)ik)*gdr;
-			float py = ((float)il)*gdr;
-			float pz = ((float)im)*gdr;
-			vgrid = 0.;
-			for(unsigned int j=0; j<tris; j++){
-				//create cubes
-				if(k+l+m==0){
-					//setting up cube directions
-					for(unsigned int n=0; n<3; n++) cvec[j][2][n] = norma[tri[j][2]].a[n]; //normal of boundary element
-					vnorm = 0.;
-					for(unsigned int n=0; n<3; n++){
-						cvec[j][0][n] = posa[tri[j][0]].a[n]-posa[i].a[n]; //edge 1
-						if(per[n]&&fabs(cvec[j][0][n])>2*dr)	cvec[j][0][n] += sgn(cvec[j][0][n])*(-dmax[n]+dmin[n]); //periodicity
-						vnorm += pow(cvec[j][0][n],2);
-					}
-					vnorm = sqrt(vnorm);
-					for(unsigned int n=0; n<3; n++) cvec[j][0][n] /= vnorm; 
-					for(unsigned int n=0; n<3; n++)	cvec[j][1][n] = cvec[j][0][(n+1)%3]*cvec[j][2][(n+2)%3]-cvec[j][0][(n+2)%3]*cvec[j][2][(n+1)%3]; //cross product of normal and edge1
-					vnorm = 0.;
-					for(unsigned int n=0; n<3; n++){
-						cvec[j][3][n] = posa[tri[j][1]].a[n]-posa[i].a[n]; //edge 2
-						if(per[n]&&fabs(cvec[j][3][n])>2*dr)	cvec[j][3][n] += sgn(cvec[j][3][n])*(-dmax[n]+dmin[n]); //periodicity
-						vnorm += pow(cvec[j][3][n],2);
-						avnorm[n] -= norma[tri[j][2]].a[n];
-					}
-					vnorm = sqrt(vnorm);
-					for(unsigned int n=0; n<3; n++) cvec[j][3][n] /= vnorm; 
-					for(unsigned int n=0; n<3; n++)	cvec[j][4][n] = cvec[j][3][(n+1)%3]*cvec[j][2][(n+2)%3]-cvec[j][3][(n+2)%3]*cvec[j][2][(n+1)%3]; //cross product of normal and edge2
-				}
-				//filling vgrid
-				bool incube[5] = {false, false, false, false, false};
-				for(unsigned int n=0; n<5; n++){
-					sp = px*cvec[j][n][0]+py*cvec[j][n][1]+pz*cvec[j][n][2];
-					if(fabs(sp)<=dr/2.+eps) incube[n] = true;
-				}
-				if((incube[0] && incube[1] && incube[2]) || (incube[2] && incube[3] && incube[4])){
-					vgrid = 1.;
-#ifdef bdebug
-					if(i==0){ // && j==tris-1){
-						ddum[0] = px+posa[i][0];
-						ddum[1] = py+posa[i][1];
-						ddum[2] = pz+posa[i][2];
-						//cout << ddum[0] << " " << ddum[1] << " " << ddum[2] << endl;
-						debug.push_back(ddum);
-						debug2.push_back(vgrid);
-					}
-#endif
-					if(k+l+m!=0) break; //makes sure that in the first grid point we loop over all triangles j s.t. values are initialized correctly.
-				}
-			}
-			//end create cubes
-			//remove points based on planes (voronoi diagram & walls)
-			float tvec[3][3];
-			for(unsigned int j=0; j<tris; j++){
-				if(vgrid<eps) break; //gridpoint already empty
-				if(first[j]){
-					first[j] = false;
-					//set up plane normals and points
-					for(unsigned int n=0; n<3; n++){
-						cvec[j][5][n] = posa[tri[j][0]].a[n]-posa[i].a[n]; //normal of plane voronoi
-						if(per[n]&&fabs(cvec[j][5][n])>2*dr)	cvec[j][5][n] += sgn(cvec[j][5][n])*(-dmax[n]+dmin[n]); //periodicity
-						cvec[j][6][n] = posa[i].a[n]+cvec[j][5][n]/2.; //position of plane voronoi
-						tvec[0][n] = cvec[j][5][n]; // edge 1
-						tvec[1][n] = posa[tri[j][1]].a[n]-posa[i].a[n]; // edge 2
-						if(per[n]&&fabs(tvec[1][n])>2*dr)	tvec[1][n] += sgn(tvec[1][n])*(-dmax[n]+dmin[n]); //periodicity
-						if(!closed){
-							cvec[j][7][n] = tvec[1][n]; //normal of plane voronoi 2
-							cvec[j][8][n] = posa[i].a[n]+cvec[j][7][n]/2.; //position of plane voronoi 2
-						}
-						tvec[2][n] = avnorm[n]; // negative average normal
-					}
-					for(unsigned int n=0; n<3; n++){
-						for(unsigned int k=0; k<3; k++){
-							cvec[j][k+9][n] = tvec[k][(n+1)%3]*tvec[(k+1)%3][(n+2)%3]-tvec[k][(n+2)%3]*tvec[(k+1)%3][(n+1)%3]; //normals of tetrahedron planes
-						}
-					}
-					sp = 0.;
-					for(unsigned int n=0; n<3; n++) sp += norma[tri[j][2]].a[n]*cvec[j][9][n]; //test whether normals point inward tetrahedron, if no flip normals
-					if(sp > 0.){
-						for(unsigned int k=0; k<3; k++){
-							for(unsigned int n=0; n<3; n++)	cvec[j][k+9][n] *= -1.;
-						}
-					}
-				}
-			  //remove unwanted points and sum up for volume
-				//voronoi plane
-				tvec[0][0] = px + posa[i].a[0] - cvec[j][6][0];
-				tvec[0][1] = py + posa[i].a[1] - cvec[j][6][1];
-				tvec[0][2] = pz + posa[i].a[2] - cvec[j][6][2];
-				sp = 0.;
-				for(unsigned int n=0; n<3; n++) sp += tvec[0][n]*cvec[j][5][n];
-				if(sp>0.+eps){
-					vgrid = 0.;
-					break;
-				}
-				else if(fabs(sp) < eps){
-					vgrid /= 2.;
-				}
-				//voronoi plane 2
-				if(!closed){
-					tvec[0][0] = px + posa[i].a[0] - cvec[j][8][0];
-					tvec[0][1] = py + posa[i].a[1] - cvec[j][8][1];
-					tvec[0][2] = pz + posa[i].a[2] - cvec[j][8][2];
-					sp = 0.;
-					for(unsigned int n=0; n<3; n++) sp += tvec[0][n]*cvec[j][7][n];
-					if(sp>0.+eps){
-						vgrid = 0.;
-						break;
-					}
-					else if(fabs(sp) < eps){
-						vgrid /= 2.;
-					}
-				}
-				//walls
-				tvec[0][0] = px;
-				tvec[0][1] = py;
-				tvec[0][2] = pz;
-				bool half = false;
-				for(unsigned int o=0; o<3; o++){
-					sp = 0.;
-					for(unsigned int n=0; n<3; n++) sp += tvec[0][n]*cvec[j][9+o][n];
-					if(sp<0.-eps) break;
-					if(fabs(sp)<eps && o==0) half=true;
-					if(o==2 && !half){
-						vgrid = 0.;
-						break;
-					}
-					else if(o==2 && half){
-						vgrid /= 2.;
-					}
-				}
-				if(vgrid < eps) break;
-				if(j==tris-1)	vola[i] += vgrid;
-			}
-		}
-		}
-		}
-		vola[i] *= pow(dr/(float)gres,3);
-		delete [] first;
-		for(unsigned int j=0; j<tris; j++){
-			for(unsigned int k=0; k<12; k++) delete [] cvec[j][k];
-			delete [] cvec[j];
-			delete [] tri[j];
-		}
-		delete [] cvec;
-		delete [] tri;
-	}
-	//host
-	vector <float> vol;
-	for(unsigned int i=0; i<nvert; i++) vol.push_back(vola[i]);
+	int *trisize;
+	float *vol_d;
+	CUDA_SAFE_CALL( cudaMalloc((void **) &trisize, nvert*sizeof(int  )) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &vol_d  ,       sizeof(float)) );
+	numBlocks = (int) ceil((float)max(nvert)/(float)numThreads);
+	numBlocks = min(numBlocks,50000);
+
+	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d sync_i, sync_o, nvert, nbe, dr, eps);
+
+	CUDA_SAFE_CALL( cudaMemcpy((void *) vola,(void *) vol_d, nvert*sizeof(float), cudaMemcpyDeviceToHost) );
+	cudaFree( trisize );
+	cudaFree( vol_d   );
+
 	cout << " [OK]" << endl;
 
 	//setting up fluid particles
 	cout << "Defining fluid particles in a box ..." << endl;
 	bool set = true;
-	float **fpos;
 	float fluid_vol = pow(dr,3);
 	unsigned int nfluid = 0;
+	unsigned int *nfluid_in_box;
+	unsigned int nfbox = 0;
 	unsigned int maxf = 0;
 	eps = 1e-4*dr;
+	uf4 **fpos;
+	fpos = new uf4*[maxfbox];
+	nfluid_in_box = new int[maxfbox];
+	for(int i=0; i<maxfbox; i++)
+		nfluid_in_box[i] = 0;
+	int *nfib_d;
+	CUDA_SAFE_CALL( cudaMalloc((void **) &nfib_d, sizeof(int)) );
+
 	while(set){
 		xmin = xmax = ymin = ymax = zmin = zmax = 0.;
 		cout << "Enter dimensions of fluid box:" << endl;
@@ -610,27 +354,28 @@ int crixus_main(int argc, char** argv){
 			return FLUID_NDEF;
 		}
 		maxf = (floor((xmax+eps-xmin)/dr)+1)*(floor((ymax+eps-ymin)/dr)+1)*(floor((zmax+eps-zmin)/dr)+1);
-		fpos = new float*[maxf];
-		for(unsigned int i=0; i<maxf; i++) fpos[i] = new float[3];
-		//device
-		//this can be a bit more complex in order to fill complex geometries
-		for(int i=0; i<=floor((xmax+eps-xmin)/dr); i++){
-		for(int j=0; j<=floor((ymax+eps-ymin)/dr); j++){
-		for(int k=0; k<=floor((zmax+eps-zmin)/dr); k++){
-			fpos[nfluid][0] = xmin + (float)i*dr;
-			fpos[nfluid][1] = ymin + (float)j*dr;
-			fpos[nfluid][2] = zmin + (float)k*dr;
-			nfluid++;
-		}}}
-		//host
-		for(unsigned int i=0; i<nfluid; i++){
-			ddum[0] = fpos[i][0];
-			ddum[1] = fpos[i][1];
-			ddum[2] = fpos[i][2];
-			pos.push_back(ddum);
-			vol.push_back(fluid_vol);
-		}
+		fpos[nfbox] = new uf4[maxf];
+		uf4 *fpos_d;
+		int nfib;
+		nfib = 0;
+		CUDA_SAFE_CALL( cudaMalloc((void **) &fpos_d, maxf*sizeof(uf4)) );
+		CUDA_SAFE_CALL( cudaMemcpy((void *) nfib_d, (void *) nfib, sizeof(int), cudaMemcpyHostToDevice) );
+		numBlocks = (int) ceil((float)maxf/(float)numThreads);
+		numBlocks = min(numBlocks,50000);
+
+		fill_fluid<<<numBlocks, numThreads>>> (fpos_d, xmin, xmax, ymin, ymax, zmin, zmax, eps, dr, nfib_d, fmax, lock);
+		
+		CUDA_SAFE_CALL( cudaMemcpy((void *) fpos[nfbox], (void *) fpos_d, maxf*sizeof(uf4), cudaMemcpyDeviceToHost) );
+		CUDA_SAFE_CALL( cudaMemcpy((void *) nfib       , (void *) nfib_d,      sizeof(int), cudaMemcpyDeviceToHost) );
+		cudaFree( fpos_d );
+		nfluid_in_box[nfbox] = nfib;
+		nfluid += nfib;
+		cudaFree(fpos_d);
+		nfbox += 1;
+
 		cont = 'n';
+		if(nfbox == maxfbox)
+			break;
 		do{
 			if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
 			cout << "Another fluid box (y/n): ";
@@ -639,45 +384,52 @@ int crixus_main(int argc, char** argv){
 		}while(cont!='y' && cont!='n');
 	}
 	cout << "Creation of " << nfluid << " fluid particles completed. [OK]" << endl;
+	cudaFree( nfib_d );
 
 	//prepare output structure
 	cout << "Creating and initializing of output buffer ...";
 	OutBuf *buf;
 #ifndef bdebug
-	buf = new OutBuf[pos.size()];
+	buf = new OutBuf[nvert + nbe + nfluid];
 #else
-	buf = new OutBuf[pos.size()+debug.size()];
+	buf = new OutBuf[nvert + nbe + nfluid + debug.size()];
 #endif
 	int k=0;
 	//fluid particles
-	for(unsigned int i=nbe+nvert; i<pos.size(); i++){
-		buf[k].x = pos[i][0];
-		buf[k].y = pos[i][1];
-		buf[k].z = pos[i][2];
-		buf[k].nx = 0.;
-		buf[k].ny = 0.;
-		buf[k].nz = 0.;
-		buf[k].vol = vol[i-nbe];
-		buf[k].surf = 0.;
-		buf[k].kpar = 1;
-		buf[k].kfluid = 1;
-		buf[k].kent = 1;
-		buf[k].kparmob = 0;
-		buf[k].iref = k;
-		buf[k].ep1 = 0;
-		buf[k].ep2 = 0;
-		buf[k].ep3 = 0;
-		k++;
+	for(unsigned int j=0; j<nfbox; j++){
+		for(unsigned int i=0; i<nfuid_in_box[j]; i++){
+			if(fpos[j][i].a[0] < -1e9)
+				continue;
+			buf[k].x = fpos[j][i].a[0];
+			buf[k].y = fpos[j][i].a[1];
+			buf[k].z = fpos[j][i].a[2];
+			buf[k].nx = 0.;
+			buf[k].ny = 0.;
+			buf[k].nz = 0.;
+			buf[k].vol = fluid_vol;
+			buf[k].surf = 0.;
+			buf[k].kpar = 1;
+			buf[k].kfluid = 1;
+			buf[k].kent = 1;
+			buf[k].kparmob = 0;
+			buf[k].iref = k;
+			buf[k].ep1 = 0;
+			buf[k].ep2 = 0;
+			buf[k].ep3 = 0;
+			k++;
+		}
 	}
 	//vertex particles
 	for(unsigned int i=0; i<nvert; i++){
-		buf[k].x = pos[i][0];
-		buf[k].y = pos[i][1];
-		buf[k].z = pos[i][2];
+		if(posa[i].a[0] < -1e9)
+			continue;
+		buf[k].x = posa[i].a[0];
+		buf[k].y = posa[i].a[1];
+		buf[k].z = posa[i].a[2];
 		buf[k].nx = 0.;
 		buf[k].ny = 0.;
 		buf[k].nz = 0.;
-		buf[k].vol = vol[i];
+		buf[k].vol = vola[i];
 		buf[k].surf = 0.;
 		buf[k].kpar = 2;
 		buf[k].kfluid = 1;
@@ -691,12 +443,12 @@ int crixus_main(int argc, char** argv){
 	}
 	//boundary elements
 	for(unsigned int i=nvert; i<nvert+nbe; i++){
-		buf[k].x = pos[i][0];
-		buf[k].y = pos[i][1];
-		buf[k].z = pos[i][2];
-		buf[k].nx = norm[i-nvert][0];
-		buf[k].ny = norm[i-nvert][1];
-		buf[k].nz = norm[i-nvert][2];
+		buf[k].x = posa[i].a[0];
+		buf[k].y = posa[i].a[1];
+		buf[k].z = posa[i].a[2];
+		buf[k].nx = norma[i-nvert].a[0];
+		buf[k].ny = norma[i-nvert].a[1];
+		buf[k].nz = norma[i-nvert].a[2];
 		buf[k].vol = 0.;
 		buf[k].surf = surf[i-nvert];
 		buf[k].kpar = 3;
@@ -745,12 +497,38 @@ int crixus_main(int argc, char** argv){
 	strncpy(fname+flen-1, fend, strlen(fend));
 	fname[flen+4] = '\0';
 	cout << "Writing output to file " << fname << " ...";
-	int err = hdf5_output( buf, pos.size(), fname, &time);
+	int err = hdf5_output( buf, sizeof(buf)/sizeof(OutBuf), fname, &time);
 	if(err==0){ cout << " [OK]" << endl; }
 	else {
 		cout << " [FAILED]" << endl;
 		return WRITE_FAIL;
 	}
+
+	//Free memory
+	//Arrays
+	delete [] norma;
+	delete [] posa;
+	delete [] vola;
+	delete [] surf;
+	delete [] ep;
+	delete [] nfluid_in_box;
+	delete [] buf;
+	delete [] fname;
+	for(unsigned int i=0; i<maxfbox; i++)
+		delete [] fpos[i];
+	delete [] fpos;
+	//Cuda
+	cudaFree( norm_d  );
+	cudaFree( pos_d   );
+	cudaFree( vol_d   );
+	cudaFree( surf_d  );
+	cudaFree( ep_d    );
+	cudaFree( dmin_d  );
+	cudaFree( dmax_d  );
+	cudaFree( sync_id );
+	cudaFree( sync_od );
+
+	//End
 	return 0;
 }
 
