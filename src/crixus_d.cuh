@@ -26,5 +26,4 @@ __global__ void fill_fluid (uf4*, float, float, float, float, float, float, floa
 
 __device__ void gpu_sync (int*, int*);
 
-__host__ void initsync (int*, int*, int);
 #endif

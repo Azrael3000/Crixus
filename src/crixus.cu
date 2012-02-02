@@ -258,9 +258,7 @@ int crixus_main(int argc, char** argv){
 		cout << " [OK]" << endl;
 	}
 
-	//init for gpu sync
 	int *sync_id, *sync_od;
-	initsync(sync_id, sync_od, numBlocks);
 
 	//calculate volume of vertex particles
 	float4 dmin = {xmin,ymin,zmin,0.};
@@ -293,11 +291,21 @@ int crixus_main(int argc, char** argv){
 			cout << "Updating links ...";
 			numBlocks = (int) ceil((float)max(nvert,nbe)/(float)numThreads);
 			numBlocks = min(numBlocks,50000);
+      //initialize gpu sync, why can this not be done in an external function?
+	    int *sync_i;
+	    sync_i = new int[numBlocks];
+	    for(int i=0; i<numBlocks; i++) sync_i[i] = 0;
+	    CUDA_SAFE_CALL( cudaMalloc((void **) &sync_id, numBlocks*sizeof(int)) );
+	    CUDA_SAFE_CALL( cudaMalloc((void **) &sync_od, numBlocks*sizeof(int)) );
+	    CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(int), cudaMemcpyHostToDevice) );
+      delete [] sync_i;
 
 			periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, dmax_d, dmin_d, dr, sync_id, sync_od, newlink, idim);
 
 			CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d, (nvert+nbe)*sizeof(uf4), cudaMemcpyDeviceToHost) );
 			CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d ,         nbe*sizeof(ui4), cudaMemcpyHostToDevice) );
+	    cudaFree( sync_id );
+	    cudaFree( sync_od );
 			//if(err!=0) return err;
 			//host
 			cout << " [OK]" << endl;
@@ -315,11 +323,21 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMalloc((void **) &per_d  ,     3*sizeof(bool )) );
 	numBlocks = (int) ceil((float)nvert/(float)numThreads);
 	numBlocks = min(numBlocks,50000);
+  //initialize gpu sync, why can this not be done in an external function?
+	int *sync_i;
+	sync_i = new int[numBlocks];
+	for(int i=0; i<numBlocks; i++) sync_i[i] = 0;
+	CUDA_SAFE_CALL( cudaMalloc((void **) &sync_id, numBlocks*sizeof(int)) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &sync_od, numBlocks*sizeof(int)) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(int), cudaMemcpyHostToDevice) );
+  delete [] sync_i;
 
 	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, sync_id, sync_od, nvert, nbe, dr, eps, per_d);
 
   //bug here, but what?
 	CUDA_SAFE_CALL( cudaMemcpy((void *) vola,(void *) vol_d, nvert*sizeof(float), cudaMemcpyDeviceToHost) );
+	cudaFree( sync_id );
+	cudaFree( sync_od );
 	cudaFree( trisize );
 	cudaFree( vol_d   );
 	cudaFree( per_d   );
@@ -529,8 +547,6 @@ int crixus_main(int argc, char** argv){
 	cudaFree( ep_d    );
 	cudaFree( dmin_d  );
 	cudaFree( dmax_d  );
-	cudaFree( sync_id );
-	cudaFree( sync_od );
 
 	//End
 	return 0;

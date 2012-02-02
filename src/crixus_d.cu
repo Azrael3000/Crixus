@@ -447,7 +447,7 @@ __device__ void gpu_sync (int *sync_i, int *sync_o)
 	if(bid ==1){
 		int i = tid_in_block;
 		while (i<nblock) {
-			while(sync_i[tid_in_block] != 1)
+			while(sync_i[i] != 1)
 				;
 			i += blockDim.x;
 		}
@@ -461,6 +461,7 @@ __device__ void gpu_sync (int *sync_i, int *sync_o)
 		}
 	}
 
+//this last part causes an infinite loop, why?
 	//sync block
 	if(tid_in_block == 0){
 		while (sync_o[bid] != 1)
@@ -468,15 +469,5 @@ __device__ void gpu_sync (int *sync_i, int *sync_o)
 	}
 	__syncthreads();
 
-}
-
-__host__ void initsync (int *sync_id, int *sync_od, int numBlocks)
-{
-	int *sync_i;
-	sync_i = new int[numBlocks];
-	for(int i=0; i<numBlocks; i++) sync_i[i] = 0;
-	CUDA_SAFE_CALL( cudaMalloc((void **) &sync_id, numBlocks*sizeof(int)) );
-	CUDA_SAFE_CALL( cudaMalloc((void **) &sync_od, numBlocks*sizeof(int)) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(int), cudaMemcpyHostToDevice) );
 }
 #endif
