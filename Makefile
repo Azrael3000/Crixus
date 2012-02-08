@@ -3,16 +3,25 @@
 
 OSUPPER = $(shell uname -s 2>/dev/null | tr [:lower:] [:upper:]) 
 OSLOWER = $(shell uname -s 2>/dev/null | tr [:upper:] [:lower:]) 
+HNAME = $(shell hostname)
  
 dbg = 1
 SMVERSION = 11
 
-CUDA_INSTALL_PATH = /usr/local/cuda
+ifeq ($(HNAME),$(shell echo cuda-sv)) #dirty but works
+	CUDA_INSTALL_PATH = /usr
+else
+	CUDA_INSTALL_PATH = /usr/local/cuda
+endif
+
 CUDA_SDK_PATH = /home/kassiotis/NVIDIA_GPU_Computing_SDK/
 
 ROOTDIR = $(CUDA_SDK_PATH)C/common
 INCLUDES = -I../cudpp/include/
 INCLUDES += -I$(CUDA_SDK_PATH)/shared/inc/
+ifeq ($(HNAME),$(shell echo cuda-sv)) #dirty but works
+	INCLUDES += -I$(THIRDPARTYSOFTWARE)/phdf5/include -I$(THIRDPARTYSOFTWARE)/include
+endif
 
 BINDIR = bin
 OBJDIR = obj/
@@ -45,3 +54,7 @@ NVCCFLAGS += -arch sm_11
 EXECUTABLE = crixus
 
 include $(CUDA_SDK_PATH)/C/common/common.mk
+
+ifeq ($(HNAME),$(shell echo cuda-sv)) #dirty but works
+	LIB += -L/home/arnom/software/phdf5/lib -lhdf5 
+endif

@@ -7,7 +7,7 @@
 
 //variables
 const unsigned int maxfbox = 100;// maximum number of fluid boxes
-const unsigned int gres    = 10; // grid resolution = dr/dr_grid
+const unsigned int gres    = 50; // grid resolution = dr/dr_grid
 const unsigned int trimax  = 100;
 
 //Output struct

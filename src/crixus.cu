@@ -300,7 +300,8 @@ int crixus_main(int argc, char** argv){
 	    CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(int), cudaMemcpyHostToDevice) );
       delete [] sync_i;
 
-			periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, dmax_d, dmin_d, dr, sync_id, sync_od, newlink, idim);
+			Lock lock_per;
+			periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, dmax_d, dmin_d, dr, sync_id, sync_od, newlink, idim, lock_per);
 
 			CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d, (nvert+nbe)*sizeof(uf4), cudaMemcpyDeviceToHost) );
 			CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d ,         nbe*sizeof(ui4), cudaMemcpyHostToDevice) );
@@ -332,10 +333,11 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(int), cudaMemcpyHostToDevice) );
 //  delete [] sync_i;
 
-	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, sync_id, sync_od, nvert, nbe, dr, eps, per_d);
+	Lock lock_vert;
+	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, sync_id, sync_od, nvert, nbe, dr, eps, per_d, lock_vert);
 
-	CUDA_SAFE_CALL( cudaMemcpy((void *) sync_i, (void *) sync_od, numBlocks*sizeof(int), cudaMemcpyDeviceToHost) );
-	for(int i=0; i<numBlocks; i++) cout << sync_i[i] << " " << i << endl;
+	//CUDA_SAFE_CALL( cudaMemcpy((void *) sync_i, (void *) sync_od, numBlocks*sizeof(int), cudaMemcpyDeviceToHost) );
+	//for(int i=0; i<numBlocks; i++) cout << sync_i[i] << " " << i << endl;
   delete [] sync_i;
   //bug here, but what?
 	CUDA_SAFE_CALL( cudaMemcpy((void *) vola,(void *) vol_d, nvert*sizeof(float), cudaMemcpyDeviceToHost) );
@@ -384,14 +386,15 @@ int crixus_main(int argc, char** argv){
 		int nfib;
 		nfib = 0;
 		CUDA_SAFE_CALL( cudaMalloc((void **) &fpos_d, maxf*sizeof(uf4)) );
-		CUDA_SAFE_CALL( cudaMemcpy((void *) nfib_d, (void *) nfib, sizeof(int), cudaMemcpyHostToDevice) );
+		CUDA_SAFE_CALL( cudaMemcpy((void *) nfib_d, (void *) &nfib, sizeof(int), cudaMemcpyHostToDevice) );
 		numBlocks = (int) ceil((float)maxf/(float)numThreads);
 		numBlocks = min(numBlocks,50000);
 
-		fill_fluid<<<numBlocks, numThreads>>> (fpos_d, xmin, xmax, ymin, ymax, zmin, zmax, eps, dr, nfib_d, maxf, lock);
+		Lock lock_f;
+		fill_fluid<<<numBlocks, numThreads>>> (fpos_d, xmin, xmax, ymin, ymax, zmin, zmax, eps, dr, nfib_d, maxf, lock_f);
 		
 		CUDA_SAFE_CALL( cudaMemcpy((void *) fpos[nfbox], (void *) fpos_d, maxf*sizeof(uf4), cudaMemcpyDeviceToHost) );
-		CUDA_SAFE_CALL( cudaMemcpy((void *) nfib       , (void *) nfib_d,      sizeof(int), cudaMemcpyDeviceToHost) );
+		CUDA_SAFE_CALL( cudaMemcpy((void *) &nfib       , (void *) nfib_d,      sizeof(int), cudaMemcpyDeviceToHost) );
 		cudaFree( fpos_d );
 		nfluid_in_box[nfbox] = nfib;
 		nfluid += nfib;
@@ -415,10 +418,11 @@ int crixus_main(int argc, char** argv){
 	cout << "Creating and initializing of output buffer ...";
 	OutBuf *buf;
 #ifndef bdebug
-	buf = new OutBuf[nvert + nbe + nfluid];
+	unsigned int nelem = nvert+nbe+nfluid;
 #else
-	buf = new OutBuf[nvert + nbe + nfluid + debug.size()];
+	unsigned int nelem = nvert+nbe+nfluid+debug.size();
 #endif
+	buf = new OutBuf[nelem];
 	int k=0;
 	//fluid particles
 	for(unsigned int j=0; j<nfbox; j++){
@@ -522,7 +526,7 @@ int crixus_main(int argc, char** argv){
 	strncpy(fname+flen-1, fend, strlen(fend));
 	fname[flen+4] = '\0';
 	cout << "Writing output to file " << fname << " ...";
-	int err = hdf5_output( buf, sizeof(buf)/sizeof(OutBuf), fname, &time);
+	int err = hdf5_output( buf, nelem, fname, &time);
 	if(err==0){ cout << " [OK]" << endl; }
 	else {
 		cout << " [FAILED]" << endl;

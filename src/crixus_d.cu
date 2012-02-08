@@ -100,16 +100,22 @@ __global__ void swap_normals (uf4 *norm, int nbe)
 	}
 }
 
-__global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *dmax, uf4 *dmin, float dr, int *sync_i, int *sync_o, int *newlink, int idim)
+__global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *dmax, uf4 *dmin, float dr, int *sync_i, int *sync_o, int *newlink, int idim, Lock lock)
 {
 	//find corresponding vertices
 	unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
+	unsigned int i_c = threadIdx.x;
 	while(i<nvert){
 		newlink[i] = 0;
 		i += blockDim.x*gridDim.x;
 	}
 
-	gpu_sync(sync_i, sync_o);
+//	gpu_sync(sync_i, sync_o);
+	if(i_c==0){
+		lock.lock();
+		lock.unlock();
+	}
+	__syncthreads();
 
 	i = blockIdx.x*blockDim.x+threadIdx.x;
 	while(i<nvert){
@@ -134,7 +140,12 @@ __global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *d
 		i += blockDim.x*gridDim.x;
 	}
 
-	gpu_sync(sync_i, sync_o);
+//	gpu_sync(sync_i, sync_o);
+	if(i_c==0){
+		lock.lock();
+		lock.unlock();
+	}
+	__syncthreads();
 
 	//relink
 	i = blockIdx.x*blockDim.x+threadIdx.x;
@@ -149,17 +160,22 @@ __global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *d
 	return;
 }
 
-__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int *sync_i, int *sync_o, int nvert, int nbe, float dr, float eps, bool *per)
+__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int *sync_i, int *sync_o, int nvert, int nbe, float dr, float eps, bool *per, Lock lock)
 {
 	//get neighbouring vertices
 	int i = blockIdx.x*blockDim.x+threadIdx.x;
+	int i_c = threadIdx.x;
 	while(i<nvert){
 		trisize[i] = 0;
 		i += blockDim.x*gridDim.x;
 	}
 
-	gpu_sync(sync_i, sync_o);
-  return;
+//	gpu_sync(sync_i, sync_o);
+	if(i_c==0){
+		lock.lock();
+		lock.unlock();
+	}
+	__syncthreads();
 
 	i = blockIdx.x*blockDim.x+threadIdx.x;
 	while(i<nbe){
@@ -169,7 +185,12 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 		i += blockDim.x*gridDim.x;
 	}
 
-	gpu_sync(sync_i, sync_o);
+//	gpu_sync(sync_i, sync_o);
+	if(i_c==0){
+		lock.lock();
+		lock.unlock();
+	}
+	__syncthreads();
 
 	//sort neighbouring vertices
 	//calculate volume (geometry factor)
@@ -394,18 +415,18 @@ __global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float
 {
 	//this can be a bit more complex in order to fill complex geometries
 	__shared__ int nfib_cache[threadsPerBlock];
-	int idim = (floor((ymax+eps-ymin)/dr)+1)*(floor((zmax+eps-zmin)/dr)+1);
-	int jdim =  floor((zmax+eps-zmin)/dr)+1;
+	int idim = (floor((ymax+eps-ymin)/dr)+1)*(floor((xmax+eps-xmin)/dr)+1);
+	int jdim =  floor((xmax+eps-xmin)/dr)+1;
 	int i, j, k, tmp, nfib_tmp;
 	int tid = threadIdx.x;
 
 	nfib_tmp = 0;
 	int id = blockIdx.x*blockDim.x+threadIdx.x;
 	while(id<fmax){
-		i = id%idim;
-		tmp = id-i*idim;
-		j = tmp%jdim;
-		k = tmp-j*jdim;
+		k = id/idim;
+		tmp = id%idim;
+		j = tmp/jdim;
+		i = tmp%jdim;
 		fpos[id].a[0] = xmin + (float)i*dr;
 		fpos[id].a[1] = ymin + (float)j*dr;
 		fpos[id].a[2] = zmin + (float)k*dr;
@@ -433,6 +454,7 @@ __global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float
 }
 
 //Implemented according to: Inter-Block GPU Communication via Fast Barrier Synchronization, Shucai Xiao and Wu-chun Feng, Department of Computer Science, Virginia Tech, 2009
+//The original implementation doesn't work. For now lock is used.
 __device__ void gpu_sync (int *sync_i, int *sync_o)
 {
 	int tid_in_block = threadIdx.x;
@@ -465,13 +487,11 @@ __device__ void gpu_sync (int *sync_i, int *sync_o)
 //this last part causes an infinite loop, why?
 	//sync block
 	if(tid_in_block == 0 && bid == 1){
-//    for(int i=0; i<10000000; i++)
 		while (sync_o[bid] != 1)
-      ;
-    sync_o[bid] = bid;
+      			;
 	}
 
-//	__syncthreads();*/
+	__syncthreads();
 
 }
 
