@@ -159,6 +159,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 	}
 
 	gpu_sync(sync_i, sync_o);
+  return;
 
 	i = blockIdx.x*blockDim.x+threadIdx.x;
 	while(i<nbe){
@@ -444,7 +445,7 @@ __device__ void gpu_sync (int *sync_i, int *sync_o)
 		sync_o[bid] = 0;
 	}
 	
-	if(bid ==1){
+	if(bid == 0){
 		int i = tid_in_block;
 		while (i<nblock) {
 			while(sync_i[i] != 1)
@@ -463,11 +464,15 @@ __device__ void gpu_sync (int *sync_i, int *sync_o)
 
 //this last part causes an infinite loop, why?
 	//sync block
-	if(tid_in_block == 0){
+	if(tid_in_block == 0 && bid == 1){
+//    for(int i=0; i<10000000; i++)
 		while (sync_o[bid] != 1)
-			;
+      ;
+    sync_o[bid] = bid;
 	}
-	__syncthreads();
+
+//	__syncthreads();*/
 
 }
+
 #endif

@@ -330,10 +330,13 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMalloc((void **) &sync_id, numBlocks*sizeof(int)) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &sync_od, numBlocks*sizeof(int)) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(int), cudaMemcpyHostToDevice) );
-  delete [] sync_i;
+//  delete [] sync_i;
 
 	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, sync_id, sync_od, nvert, nbe, dr, eps, per_d);
 
+	CUDA_SAFE_CALL( cudaMemcpy((void *) sync_i, (void *) sync_od, numBlocks*sizeof(int), cudaMemcpyDeviceToHost) );
+	for(int i=0; i<numBlocks; i++) cout << sync_i[i] << " " << i << endl;
+  delete [] sync_i;
   //bug here, but what?
 	CUDA_SAFE_CALL( cudaMemcpy((void *) vola,(void *) vol_d, nvert*sizeof(float), cudaMemcpyDeviceToHost) );
 	cudaFree( sync_id );
