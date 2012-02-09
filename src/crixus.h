@@ -4,10 +4,11 @@
 //definitions
 #define DATASETNAME "Compound"
 #define sgn(x) (float)((x>0.)-(x<0.))
+#define sqr(x) (x)*(x)
 
 //variables
 const unsigned int maxfbox = 100;// maximum number of fluid boxes
-const unsigned int gres    = 100; // grid resolution = dr/dr_grid
+const unsigned int gres    = 10; // grid resolution = dr/dr_grid
 const unsigned int trimax  = 100;// maximum amount of triangles associated to one vertex particle
 
 //Output struct

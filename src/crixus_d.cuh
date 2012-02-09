@@ -27,6 +27,8 @@ __global__ void calc_vert_volume (uf4*, uf4*, ui4*, float*, int*, uf4*, uf4*, in
 __global__ void calc_vert_volume (uf4*, uf4*, ui4*, float*, int*, uf4*, uf4*, int*, int*, int, int, float, float, bool*, Lock, uf4*, float*);
 #endif
 
+__global__ void calc_ngridp (uf4*, unsigned int*, uf4*, uf4*, bool*, int*, int, float, float, int, int, float, Lock);
+
 __global__ void fill_fluid (uf4*, float, float, float, float, float, float, float, float, int*, int, Lock);
 
 __device__ void gpu_sync (int*, int*);

@@ -8,8 +8,9 @@
 #define READ_ERROR -5
 #define FLUID_NDEF -6
 #define WRITE_FAIL -7
-#define SORT_NOT_CLOSED -8
+#define MAXTHREAD_TOO_BIG -8
 #define NO_PER_VERT -9
 #define NO_UNLINK -10
+#define WRONG_INPUT -11
 
 #endif

@@ -433,6 +433,117 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 	}
 }
 
+__global__ void calc_ngridp (uf4 *pos, unsigned int *igrid, uf4 *dmin, uf4 *dmax, bool *per, int *ngridp, int maxgridp, float dr, float eps, int nvert, int nbe, float krad, Lock lock){
+	const unsigned int uibs = 8*sizeof(unsigned int);
+	unsigned int byte[uibs];
+	for(int i=0; i<uibs; i++)
+		byte[i] = 1<<i;
+	int id = blockIdx.x*blockDim.x+threadIdx.x;
+	int i_c = threadIdx.x;
+	int idim = (floor(((*dmax).a[1]+eps-(*dmin).a[1])/dr)+1)*(floor(((*dmax).a[0]+eps-(*dmin).a[0])/dr)+1);
+	int jdim =  floor(((*dmax).a[0]+eps-(*dmin).a[0])/dr)+1;
+	__shared__ int ngridpl[threadsPerBlock];
+	ngridpl[i_c] = 0;
+
+	while(id<maxgridp){
+		igrid[id] = false;
+		int ipos[3];
+		ipos[2] = id/idim;
+		int tmp = id%idim;
+		ipos[1] = tmp/jdim;
+		ipos[0] = tmp%jdim;
+		float gpos[3], rvec[3];
+		for(int i=0; i<3; i++) gpos[i] = (*dmin).a[i] + ((float)ipos[i])*dr;
+		for(int i=0; i<nvert+nbe; i++){
+			bool bbreak = false;
+			for(int j=0; j<3; j++){
+				rvec[j] = gpos[j] - pos[i].a[j];
+				//this introduces a min size for the domain, check it
+				if(per[j]&&fabs(rvec[j])>2*(krad+dr))	rvec[j] += sgn(rvec[j])*(-(*dmax).a[j]+(*dmin).a[j]); //periodicity
+				if(fabs(rvec[j]) > krad+dr+eps){
+					bbreak = true;
+					break;
+				}
+			}
+			if(bbreak) continue;
+			if(sqrt(sqr(rvec[0])+sqr(rvec[0])+sqr(rvec[2])) <= krad+dr+eps){
+				ngridpl[i_c] += 1;
+				int ida = id/uibs;
+				int idi = id%uibs;
+				unsigned int tbyte = byte[idi];
+				atomicOr(&igrid[ida],tbyte);
+				break;
+			}
+		}
+		id += blockDim.x*gridDim.x;
+	}
+
+	int j = blockDim.x/2;
+	while (j!=0){
+		if(i_c < j){
+			ngridpl[i_c] += ngridpl[i_c+j];
+		}
+		__syncthreads();
+		j /= 2;
+	}
+
+	if(i_c == 0){
+		lock.lock();
+		*ngridp += ngridpl[0];
+		lock.unlock();
+	}
+}
+
+/*__global__ void calc_gpos (uf4 *pos, uf4 *gpos, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float eps, int nvert, int nbe, float krad){
+	int id = blockIdx.x*blockDim.x+threadIdx.x;
+	int i_c = threadIdx.x;
+	int idim = (floor(((*dmax).a[1]+eps-(*dmin).a[1])/dr)+1)*(floor(((*dmax).a[0]+eps-(*dmin).a[0])/dr)+1);
+	int jdim =  floor(((*dmax).a[0]+eps-(*dmin).a[0])/dr)+1;
+
+	while(id<maxgridp){
+		int ipos[3];
+		ipos[2] = id/idim;
+		int tmp = id%idim;
+		ipos[1] = tmp/jdim;
+		ipos[0] = tmp%jdim;
+		float gpos[3], rvec[3];
+		for(int i=0; i<3; i++) gpos[i] = (*dmin).a[i] + ((float)ipos[i])*dr;
+		for(int i=0; i<nvert+nbe; i++){
+			bool bbreak = false;
+			for(int j=0; j<3; j++){
+				rvec[j] = gpos[j] - pos[i].a[j];
+				//this introduces a min size for the domain, check it
+				if(per[j]&&fabs(rvec[j])>2*(krad+dr))	rvec[j] += sgn(rvec[j])*(-(*dmax).a[j]+(*dmin).a[j]); //periodicity
+				if(fabs(rvec[j]) > krad+dr+eps){
+					bbreak = true;
+					break;
+				}
+			}
+			if(bbreak) continue;
+			if(sqrt(sqr(rvec[0])+sqr(rvec[0])+sqr(rvec[2])) <= krad+dr+eps){
+				ngridpl[i_c] += 1;
+				break;
+			}
+		}
+		id += blockDim.x*gridDim.x;
+	}
+
+	int j = blockDim.x/2;
+	while (j!=0){
+		if(i_c < j){
+			ngridpl[i_c] += ngridpl[i_c+j];
+		}
+		__syncthreads();
+		j /= 2;
+	}
+
+	if(i_c == 0){
+		lock.lock();
+		*ngridp += ngridpl[0];
+		lock.unlock();
+	}
+}*/
+
 __global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float ymax, float zmin, float zmax, float eps, float dr, int *nfib, int fmax, Lock lock)
 {
 	//this can be a bit more complex in order to fill complex geometries
