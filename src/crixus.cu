@@ -22,8 +22,6 @@
 #include "crixus_d.cuh"
 #include "lock.cuh"
 
-//#define bdebug 1
-
 using namespace std;
 
 int crixus_main(int argc, char** argv){
@@ -34,8 +32,8 @@ int crixus_main(int argc, char** argv){
 	cout << "\t*          C R I X U S          *" << endl;
 	cout << "\t*                               *" << endl;
 	cout << "\t*********************************" << endl;
-	cout << "\t* Version: 0.3b                 *" << endl;
-	cout << "\t* Date   : 16.11.2011           *" << endl;
+	cout << "\t* Version: 0.4b                 *" << endl;
+	cout << "\t* Date   : 09.02.2012           *" << endl;
 	cout << "\t* Authors: Arno Mayrhofer       *" << endl;
 	cout << "\t*          Christophe Kassiotis *"<< endl;
 	cout << "\t*          F-X Morel            *"<< endl;
@@ -59,7 +57,30 @@ int crixus_main(int argc, char** argv){
 		cout << "Example use: crixus box.stl 0.1" << endl;
 		return NO_DR;
 	}
+	
+	//looking for cuda devices without timeout
+	cout << "Selecting GPU ...";
+	int dcount;
+	bool found = false;
+	CUDA_SAFE_CALL( cudaGetDeviceCount(&dcount) );
+	for (int i=0; i<dcount; i++){
+		cudaDeviceProp prop;
+		CUDA_SAFE_CALL( cudaGetDeviceProperties(&prop,i) );
+		if(!prop.kernelExecTimeoutEnabled){
+			found = true;
+			CUDA_SAFE_CALL( cudaSetDevice(i) );
+			cout << " Id: " << i << " ...";
+			break;
+		}
+	}
+	cout << " [OK]" << endl;
+	if(!found){
+		cout << "\n\tWARNING:" << endl;
+		cout << "\tCould not find GPU without timeout." << endl;
+		cout << "\tIf execution terminates with timeout reduce gres.\n" << endl;
+	}
 
+	//Reading file
 	cout << "Opening file " << argv[1] << " ...";
 	ifstream stl_file (argv[1], ios::in);
 	if(!stl_file.is_open()){
@@ -334,7 +355,23 @@ int crixus_main(int argc, char** argv){
 //  delete [] sync_i;
 
 	Lock lock_vert;
+#ifndef bdebug
 	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, sync_id, sync_od, nvert, nbe, dr, eps, per_d, lock_vert);
+#else
+	uf4 *debug, *debug_d;
+	int debugs = pow((gres*2+1),3);
+	float *debugp, *debugp_d;
+	debugp = new float [100];
+	debug = new uf4[debugs];
+	CUDA_SAFE_CALL( cudaMalloc((void **) &debug_d, debugs*sizeof(uf4)) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &debugp_d, 100*sizeof(float)) );
+	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, sync_id, sync_od, nvert, nbe, dr, eps, per_d, lock_vert, debug_d, debugp_d);
+	CUDA_SAFE_CALL( cudaMemcpy((void*) debug, (void*) debug_d, debugs*sizeof(uf4), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void*) debugp, (void*) debugp_d, 100*sizeof(float), cudaMemcpyDeviceToHost) );
+	for(int i=0; i<100; i++){
+		cout << i << " " << debugp[i] << endl;
+	}
+#endif
 
 	//CUDA_SAFE_CALL( cudaMemcpy((void *) sync_i, (void *) sync_od, numBlocks*sizeof(int), cudaMemcpyDeviceToHost) );
 	//for(int i=0; i<numBlocks; i++) cout << sync_i[i] << " " << i << endl;
@@ -420,7 +457,7 @@ int crixus_main(int argc, char** argv){
 #ifndef bdebug
 	unsigned int nelem = nvert+nbe+nfluid;
 #else
-	unsigned int nelem = nvert+nbe+nfluid+debug.size();
+	unsigned int nelem = nvert+nbe+nfluid+debugs;
 #endif
 	buf = new OutBuf[nelem];
 	int k=0;
@@ -492,15 +529,14 @@ int crixus_main(int argc, char** argv){
 	}
 #ifdef bdebug
 	//debug
-	for(unsigned int i=0; i<debug.size(); i++){
-		buf[k].x = debug[i][0];
-		buf[k].y = debug[i][1];
-		buf[k].z = debug[i][2];
-		pos.push_back(debug[i]);
+	for(unsigned int i=0; i<debugs; i++){
+		buf[k].x = debug[i].a[0];
+		buf[k].y = debug[i].a[1];
+		buf[k].z = debug[i].a[2];
 		buf[k].nx = 0;
 		buf[k].ny = 0;
 		buf[k].nz = 0;
-		buf[k].vol = debug2[i];
+		buf[k].vol = debug[i].a[3];
 		buf[k].surf = 0.;
 		buf[k].kpar = 4;
 		buf[k].kfluid = 1;

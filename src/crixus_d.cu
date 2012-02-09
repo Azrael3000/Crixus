@@ -160,7 +160,11 @@ __global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *d
 	return;
 }
 
+#ifndef bdebug
 __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int *sync_i, int *sync_o, int nvert, int nbe, float dr, float eps, bool *per, Lock lock)
+#else
+__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int *sync_i, int *sync_o, int nvert, int nbe, float dr, float eps, bool *per, Lock lock, uf4 *debug, float* debugp)
+#endif
 {
 	//get neighbouring vertices
 	int i = blockIdx.x*blockDim.x+threadIdx.x;
@@ -180,7 +184,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 	i = blockIdx.x*blockDim.x+threadIdx.x;
 	while(i<nbe){
 		for(unsigned int j=0; j<3; j++){
-			trisize[ep[i].a[j]] += 1;
+			atomicAdd(&trisize[ep[i].a[j]],1);
 		}
 		i += blockDim.x*gridDim.x;
 	}
@@ -275,10 +279,19 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 		for(unsigned int m=0; m<gsize; m++){
 
 			float gp[3]; //gridpoint in coordinates relative to vertex
-			gp[0] = ((float)(k-(gsize-1)/2))*gdr;
-			gp[1] = ((float)(l-(gsize-1)/2))*gdr;
-			gp[2] = ((float)(m-(gsize-1)/2))*gdr;
+			gp[0] = (((float)k-(float)(gsize-1)/2))*gdr;
+			gp[1] = (((float)l-(float)(gsize-1)/2))*gdr;
+			gp[2] = (((float)m-(float)(gsize-1)/2))*gdr;
 			vgrid = 0.;
+
+#ifdef bdebug
+			if(i==bdebug){
+			for(int j=0; j<3; j++) debug[k+l*gsize+m*gsize*gsize].a[j] = gp[j] + pos[i].a[j];
+			debug[k+l*gsize+m*gsize*gsize].a[3] = -1.;
+			for(int j=0; j<100; j++) debugp[j] = 0.;
+			}
+			if(i==bdebug) debugp[0] = tris;
+#endif
 
 			//create cubes
 			for(unsigned int j=0; j<tris; j++){
@@ -314,6 +327,9 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 				}
 				if((incube[0] && incube[1] && incube[2]) || (incube[2] && incube[3] && incube[4])){
 					vgrid = 1.;
+#ifdef bdebug
+			if(i==bdebug) debug[k+l*gsize+m*gsize*gsize].a[3] = 1.;
+#endif
 					if(k+l+m!=0) break; //makes sure that in the first grid point we loop over all triangles j s.t. values are initialized correctly.
 				}
 			}
@@ -360,6 +376,9 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 				for(unsigned int n=0; n<3; n++) sp += tvec[0][n]*cvec[j][5][n];
 				if(sp>0.+eps){
 					vgrid = 0.;
+#ifdef bdebug
+			if(i==bdebug) debug[k+l*gsize+m*gsize*gsize].a[3] = 0.;
+#endif
 					break;
 				}
 				else if(fabs(sp) < eps){
@@ -387,6 +406,9 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 					if(fabs(sp)<eps && o==0) half=true;
 					if(o==2 && !half){
 						vgrid = 0.;
+#ifdef bdebug
+			if(i==bdebug) debug[k+l*gsize+m*gsize*gsize].a[3] = 0.;
+#endif
 						break;
 					}
 					else if(o==2 && half){

@@ -7,8 +7,8 @@
 
 //variables
 const unsigned int maxfbox = 100;// maximum number of fluid boxes
-const unsigned int gres    = 50; // grid resolution = dr/dr_grid
-const unsigned int trimax  = 100;
+const unsigned int gres    = 100; // grid resolution = dr/dr_grid
+const unsigned int trimax  = 100;// maximum amount of triangles associated to one vertex particle
 
 //Output struct
 struct OutBuf{
@@ -20,5 +20,8 @@ struct OutBuf{
 int hdf5_output (OutBuf *buf, int len, const char *filename, float *timevalue);
 
 int crixus_main(int, char**);
+
+//debug
+//#define bdebug 232
 
 #endif

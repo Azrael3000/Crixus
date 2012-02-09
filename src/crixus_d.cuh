@@ -2,6 +2,7 @@
 #define CRIXUS_D_CUH
 
 #include "cuda_local.cuh"
+#include "crixus.h"
 #include "lock.cuh"
 
 typedef union{
@@ -20,7 +21,11 @@ __global__ void swap_normals (uf4*, int);
 
 __global__ void periodicity_links (uf4*, ui4*, int, int, uf4*, uf4*, float, int*, int*, int*, int, Lock);
 
+#ifndef bdebug
 __global__ void calc_vert_volume (uf4*, uf4*, ui4*, float*, int*, uf4*, uf4*, int*, int*, int, int, float, float, bool*, Lock);
+#else
+__global__ void calc_vert_volume (uf4*, uf4*, ui4*, float*, int*, uf4*, uf4*, int*, int*, int, int, float, float, bool*, Lock, uf4*, float*);
+#endif
 
 __global__ void fill_fluid (uf4*, float, float, float, float, float, float, float, float, int*, int, Lock);
 
