@@ -12,5 +12,7 @@
 #define NO_PER_VERT -9
 #define NO_UNLINK -10
 #define WRONG_INPUT -11
+#define BITFIELD_WRONG -12
+#define NRGGAM_WRONG -13
 
 #endif

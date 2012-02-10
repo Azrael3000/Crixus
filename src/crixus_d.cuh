@@ -27,7 +27,9 @@ __global__ void calc_vert_volume (uf4*, uf4*, ui4*, float*, int*, uf4*, uf4*, in
 __global__ void calc_vert_volume (uf4*, uf4*, ui4*, float*, int*, uf4*, uf4*, int*, int*, int, int, float, float, bool*, Lock, uf4*, float*);
 #endif
 
-__global__ void calc_ngridp (uf4*, unsigned int*, uf4*, uf4*, bool*, int*, int, float, float, int, int, float, Lock);
+__global__ void calc_ngridp (uf4*, unsigned int*, uf4*, uf4*, bool*, int*, int, float, float, int, int, float, Lock, int);
+
+__global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock);
 
 __global__ void fill_fluid (uf4*, float, float, float, float, float, float, float, float, int*, int, Lock);
 

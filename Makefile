@@ -48,7 +48,7 @@ else
   CUFILES_sm_20 = $(CUFILES_sm_xx) 
 endif
 
-CXXFLAGS +=
+CXXFLAGS += 
 NVCCFLAGS += -arch sm_11
 
 EXECUTABLE = crixus

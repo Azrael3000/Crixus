@@ -398,20 +398,36 @@ int crixus_main(int argc, char** argv){
 	cudaFree( sync_od );
 	cudaFree( trisize );
 	cudaFree( vol_d   );
-	cudaFree( per_d   );
 
 	cout << " [OK]" << endl;
 
 	//gathering information for grid generation
+	//note that the domainsize should be at least 2*dr greater than the actual domain.
 	cout << "\nDefinition of computational domain:" << endl;
+	cout << "Proposed domainsize:" << endl;
 	for(int i=0; i<3; i++){
-		if(per[i]){
-			cout << "" << ((i==0)?"x":((i==1)?"y":"z")) << "-direction set due to periodicity." << endl;
-			cout << " min and max in " << ((i==0)?"x":((i==1)?"y":"z")) << "-direction: " << dmin.a[i] << " " << dmin.a[i] << endl;
+		if(!per[i]){
+			dmin.a[i] -= dr;
+			dmax.a[i] += dr;
 		}
-		else{
-			cout << "Please enter min and max for " << ((i==0)?"x":((i==1)?"y":"z")) << "-direction: ";
-			cin >> dmin.a[i] >> dmax.a[i];
+		cout << "\tmin and max in " << ((i==0)?"x":((i==1)?"y":"z")) << "-direction: " << dmin.a[i] << " " << dmax.a[i] << endl;
+	}
+	cont= 'n';
+	do{
+		if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
+	  cout << "Accept proposed domain size (y/n):";
+		cin >> cont;
+	}while(cont!='y' && cont!='n');
+	if(cont=='n'){
+		for(int i=0; i<3; i++){
+			if(per[i]){
+				cout << "" << ((i==0)?"x":((i==1)?"y":"z")) << "-direction set due to periodicity." << endl;
+				cout << " min and max in " << ((i==0)?"x":((i==1)?"y":"z")) << "-direction: " << dmin.a[i] << " " << dmax.a[i] << endl;
+			}
+			else{
+				cout << "Please enter min and max for " << ((i==0)?"x":((i==1)?"y":"z")) << "-direction: ";
+				cin >> dmin.a[i] >> dmax.a[i];
+			}
 		}
 	}
 	float hdr;
@@ -437,38 +453,46 @@ int crixus_main(int argc, char** argv){
 	unsigned int *igrid;
 	unsigned int *igrid_d;
 	eps = 1e-4*dr;
-	int maxgridp = ((dmax.a[0]+eps-dmin.a[0])/dr+1.)*((dmax.a[1]+eps-dmin.a[1])/dr+1.)*((dmax.a[2]+eps-dmin.a[2])/dr+1.);
-	int igrids = (int)ceil((float)maxgridp*((float)sizeof(unsigned int))/8.);
-	cout << igrids << endl;
-	cout << igrids/sizeof(unsigned int)
+	int maxgridp = floor((dmax.a[0]+eps-dmin.a[0])/dr+1.)*floor((dmax.a[1]+eps-dmin.a[1])/dr+1.)*floor((dmax.a[2]+eps-dmin.a[2])/dr+1.);
+	int igridsbyte = (int)ceil((float)maxgridp/8.); //bytes required for bitfield
+	int igrids = (int)ceil((float)igridsbyte/(float)sizeof(unsigned int)); //# of unsigned ints required for bitfield
 
-	igrid = new unsigned int[igrids/sizeof(unsigned int)];
-	for(int i=0; i<igrids/sizeof(unsigned int); i++)
+	igrid = new unsigned int[igrids];
+	for(int i=0; i<igrids; i++)
 		igrid[i] = 0;
-	CUDA_SAFE_CALL( cudaMalloc((void **) &ngridp_d, sizeof(int )) );
-	CUDA_SAFE_CALL( cudaMalloc((void **) &igrid_d , igrids) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) ngridp_d, (void *) &ngridp, sizeof(int   ), cudaMemcpyHostToDevice) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d  , (void *) &dmin  , sizeof(float4), cudaMemcpyHostToDevice) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d  , (void *) &dmax  , sizeof(float4), cudaMemcpyHostToDevice) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) igrid_d , (void *) igrid  , igrids        , cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &ngridp_d,        sizeof(int         )) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &igrid_d , igrids*sizeof(unsigned int)) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) ngridp_d, (void *) &ngridp,        sizeof(int         ), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d  , (void *) &dmin  ,        sizeof(float4      ), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d  , (void *) &dmax  ,        sizeof(float4      ), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) igrid_d , (void *) igrid  , igrids*sizeof(unsigned int), cudaMemcpyHostToDevice) );
 	numBlocks = (int) ceil((float)maxgridp/(float)numThreads);
 	numBlocks = min(numBlocks,maxblock);
 	Lock lock_ngridp;
 
-	calc_ngridp <<<numBlocks,numThreads>>> (pos_d, igrid_d, dmin_d, dmax_d, per_d, ngridp_d, maxgridp, dr, eps, nvert, nbe, krad, lock_ngridp);
+	calc_ngridp <<<numBlocks,numThreads>>> (pos_d, igrid_d, dmin_d, dmax_d, per_d, ngridp_d, maxgridp, dr, eps, nvert, nbe, krad, lock_ngridp, igrids);
 
-	CUDA_SAFE_CALL( cudaMemcpy((void *) &ngridp, (void *) ngridp_d, sizeof(int), cudaMemcpyDeviceToHost) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) igrid  , (void *) igrid_d , igrids     , cudaMemcpyDeviceToHost) );
-	cudaFree(ngridp_d);
-	cudaFree(igrid_d );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) &ngridp, (void *) ngridp_d,        sizeof(int         ), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) igrid  , (void *) igrid_d , igrids*sizeof(unsigned int), cudaMemcpyDeviceToHost) );
+	cudaFree( ngridp_d );
+	cudaFree( igrid_d  );
+	cudaFree( per_d    );
 	cout << " (" << ngridp << ")";
 	cout << " [OK]" << endl;
 
 	//initializing grid positions
-	cout << "Initializing grid positions ...";
-	uf4 *gpos, *gpos_d;
-	gpos = new uf4[ngridp];
-	CUDA_SAFE_CALL( cudaMalloc((void **) &gpos_d, ngridp*sizeof(uf4)) );
+	cout << "Initializing grid points ...";
+	uf4   *gpos , *gpos_d;   // position of grid point and index
+	float *gam  , *gam_d;    // gamma of grid point
+	float *ggam , *ggam_d;   // grad gamma_{pb} of grid point
+	int   nrggam, *nrggam_d; // number of links of all grid points
+	gpos = new uf4  [ngridp];
+	gam  = new float[ngridp];
+	ggam = new float[ngridp*maxlink*3];
+	CUDA_SAFE_CALL( cudaMalloc((void **) &gpos_d  ,           ngridp*sizeof(uf4  )) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &gam_d   ,           ngridp*sizeof(float)) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &ggam_d  , ngridp*maxlink*3*sizeof(float)) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &nrggam_d,                  sizeof(int  )) );
 	//setting indices
 	const unsigned int uibs = 8*sizeof(unsigned int);
 	unsigned int byte[uibs];
@@ -478,16 +502,30 @@ int crixus_main(int argc, char** argv){
 	for(int i=0; i<maxgridp; i++){
 		int ida = i/uibs;
 		int idi = i%uibs;
-		if(byte[idi] & igrid[ida] != 0){
-			gpos[gid].a[3] = (float)i;
+		if((byte[idi] & igrid[ida]) != 0){
+			gpos[gid].a[3] = (float)i; //gpos[].a[3] is the unique grid point index
 			gid += 1;
+			if(gid > ngridp){
+				cout << " [FAILED]";
+				return BITFIELD_WRONG;
+			}
 		}
 	}
-	cout << gid << " " << ngridp << endl;
 	delete [] igrid;
-	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos_d, (void *) gpos, ngridp*sizeof(uf4), cudaMemcpyHostToDevice) );
+	nrggam = 0;
+	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos_d  , (void *)  gpos  , ngridp*sizeof(uf4), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) nrggam_d, (void *) &nrggam,        sizeof(int), cudaMemcpyHostToDevice) );
+	numBlocks = (int) ceil((float)ngridp/(float)numThreads);
+	numBlocks = min(numBlocks,maxblock);
+	Lock lock_gpoints;
+	float seed = 0.5; //insert time here
 	
-	//init_gpos <<<numBlocks,numThreads>>> (pos_d, gpos_d, dmin_d, dmax_d, per_d, ngridp, dr, eps, nvert, nbe, krad);
+	init_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints);
+
+	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos  , (void *) gpos_d  ,           ngridp*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) gam   , (void *) gam_d   ,           ngridp*sizeof(float), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) ggam  , (void *) ggam_d  , ngridp*maxlink*3*sizeof(float), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) nrggam, (void *) nrggam_d,                  sizeof(int  ), cudaMemcpyDeviceToHost) );
 
 	cout << " [OK]" << endl;
 
@@ -555,8 +593,8 @@ int crixus_main(int argc, char** argv){
 	cout << "\nCreation of " << nfluid << " fluid particles completed. [OK]" << endl;
 	cudaFree( nfib_d );
 
-	//prepare output structure
-	cout << "Creating and initializing of output buffer ...";
+	//prepare output structure for particles
+	cout << "Creating and initializing of output buffer of particles ...";
 	OutBuf *buf;
 #ifndef bdebug
 	unsigned int nelem = nvert+nbe+nfluid;
@@ -655,7 +693,7 @@ int crixus_main(int argc, char** argv){
 #endif
 	cout << " [OK]" << endl;
 
-	//Output
+	//Output of particles
 	int flen = strlen(argv[1]);
 	char *fname = new char[flen+5];
 	const char *fend = "h5sph";
@@ -673,6 +711,77 @@ int crixus_main(int argc, char** argv){
 		return WRITE_FAIL;
 	}
 
+	//Preparing output of gridpoints
+	cout << "Creating and initializing of output buffer of grid points ...";
+	gOutBuf *gbuf;
+	linkOutBuf *linkbuf;
+	gbuf = new gOutBuf[ngridp];
+	linkbuf = new linkOutBuf[nrggam];
+	k=0;
+	for(int i=0; i<ngridp; i++){
+		gbuf[i].x   = gpos[i].a[0];
+		gbuf[i].y   = gpos[i].a[1];
+		gbuf[i].z   = gpos[i].a[2];
+		gbuf[i].id  = (int) gpos[i].a[3];
+		gbuf[i].gam = gam[i];
+		for(int j=0; j<maxlink; j++){
+			if(ggam[i*maxlink*3+j*3] < -1e9)
+				break;
+			linkbuf[k].id    = gbuf[i].id;
+			linkbuf[k].ggamx = ggam[i*maxlink*3+j*3];
+			linkbuf[k].ggamy = ggam[i*maxlink*3+j*3+1];
+			linkbuf[k].ggamz = ggam[i*maxlink*3+j*3+2];
+			k++;
+			if(k>nrggam){
+				cout << " [FAILED]" << endl;
+				return NRGGAM_WRONG;
+			}
+		}
+	}
+	cout << " [OK]" << endl;
+
+	//Output of gridpoints
+	delete [] fname;
+	fname = new char[flen+10];
+	fname[0] = '0';
+	fname[1] = '.';
+	fname[2] = 'g';
+	fname[3] = 'r';
+	fname[4] = 'i';
+	fname[5] = 'd';
+	fname[6] = '.';
+	strncpy(fname+7, argv[1], flen-8);
+	strncpy(fname+flen-1, fend, strlen(fend));
+	fname[flen+9] = '\0';
+	cout << "Writing grid to file " << fname << " ...";
+	err = hdf5_grid_output( gbuf, ngridp, fname, &time);
+	if(err==0){ cout << " [OK]" << endl; }
+	else {
+		cout << " [FAILED]" << endl;
+		return WRITE_FAIL;
+	}
+
+	//Output of gridpoint ggam_{pb}
+	delete [] fname;
+	fname = new char[flen+10];
+	fname[0] = '0';
+	fname[1] = '.';
+	fname[2] = 'l';
+	fname[3] = 'i';
+	fname[4] = 'n';
+	fname[5] = 'k';
+	fname[6] = '.';
+	strncpy(fname+7, argv[1], flen-8);
+	strncpy(fname+flen-1, fend, strlen(fend));
+	fname[flen+9] = '\0';
+	cout << "Writing grid ggam links to file " << fname << " ...";
+	err = hdf5_link_output( linkbuf, ngridp, fname, &time);
+	if(err==0){ cout << " [OK]" << endl; }
+	else {
+		cout << " [FAILED]" << endl;
+		return WRITE_FAIL;
+	}
+
 	//Free memory
 	//Arrays
 	delete [] norma;
@@ -683,7 +792,7 @@ int crixus_main(int argc, char** argv){
 	delete [] nfluid_in_box;
 	delete [] buf;
 	delete [] fname;
-	for(unsigned int i=0; i<maxfbox; i++)
+	for(unsigned int i=0; i<nfbox; i++)
 		delete [] fpos[i];
 	delete [] fpos;
 	//Cuda
@@ -749,4 +858,80 @@ int hdf5_output (OutBuf *buf, int len, const char *filename, float *timevalue){
 	return 0;
 }
 
+int hdf5_grid_output (gOutBuf *buf, int len, const char *filename, float *timevalue){
+	hid_t		mem_type_id, loc_id, dataset_id, file_space_id, mem_space_id, xfer_plist_id;
+	hsize_t	count[1], offset[1], dim[] = {len};
+	herr_t	status;
+
+	xfer_plist_id = H5Pcreate(H5P_FILE_ACCESS);
+	loc_id = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, xfer_plist_id);
+	H5Pclose(xfer_plist_id);
+	file_space_id = H5Screate_simple(1, dim, NULL);
+	mem_type_id = H5Tcreate(H5T_COMPOUND, sizeof(gOutBuf));
+
+	H5Tinsert(mem_type_id, "Coords_0"       , HOFFSET(gOutBuf, x),       H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "Coords_1"       , HOFFSET(gOutBuf, y),       H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "Coords_2"       , HOFFSET(gOutBuf, z),       H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "Gamma"          , HOFFSET(gOutBuf, gam),     H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "Index"          , HOFFSET(gOutBuf, id),      H5T_NATIVE_INT);
+
+	dataset_id = H5Dcreate(loc_id, DATASETNAME, mem_type_id, file_space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	H5Sclose(file_space_id);
+
+	count[0] = len;
+	offset[0] = 0;
+	mem_space_id = H5Screate_simple(1, count, NULL);
+	file_space_id = H5Dget_space(dataset_id);
+	H5Sselect_hyperslab(file_space_id, H5S_SELECT_SET, offset, NULL, count, NULL);
+	xfer_plist_id = H5Pcreate(H5P_DATASET_XFER);
+	status = H5Dwrite(dataset_id, mem_type_id, mem_space_id, file_space_id, xfer_plist_id, buf);
+	if(status < 0) return status;
+
+	H5Dclose(dataset_id);
+	H5Sclose(file_space_id);
+	H5Sclose(mem_space_id);
+	H5Pclose(xfer_plist_id);
+	H5Fclose(loc_id);
+	H5Tclose(mem_type_id);
+
+	return 0;
+}
+
+int hdf5_link_output (linkOutBuf *buf, int len, const char *filename, float *timevalue){
+	hid_t		mem_type_id, loc_id, dataset_id, file_space_id, mem_space_id, xfer_plist_id;
+	hsize_t	count[1], offset[1], dim[] = {len};
+	herr_t	status;
+
+	xfer_plist_id = H5Pcreate(H5P_FILE_ACCESS);
+	loc_id = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, xfer_plist_id);
+	H5Pclose(xfer_plist_id);
+	file_space_id = H5Screate_simple(1, dim, NULL);
+	mem_type_id = H5Tcreate(H5T_COMPOUND, sizeof(linkOutBuf));
+
+	H5Tinsert(mem_type_id, "Index"          , HOFFSET(linkOutBuf, id),      H5T_NATIVE_INT);
+	H5Tinsert(mem_type_id, "grad_gamma_0"   , HOFFSET(linkOutBuf, ggamx),   H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "grad_gamma_1"   , HOFFSET(linkOutBuf, ggamy),   H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "grad_gamma_2"   , HOFFSET(linkOutBuf, ggamz),   H5T_NATIVE_FLOAT);
+
+	dataset_id = H5Dcreate(loc_id, DATASETNAME, mem_type_id, file_space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+	H5Sclose(file_space_id);
+
+	count[0] = len;
+	offset[0] = 0;
+	mem_space_id = H5Screate_simple(1, count, NULL);
+	file_space_id = H5Dget_space(dataset_id);
+	H5Sselect_hyperslab(file_space_id, H5S_SELECT_SET, offset, NULL, count, NULL);
+	xfer_plist_id = H5Pcreate(H5P_DATASET_XFER);
+	status = H5Dwrite(dataset_id, mem_type_id, mem_space_id, file_space_id, xfer_plist_id, buf);
+	if(status < 0) return status;
+
+	H5Dclose(dataset_id);
+	H5Sclose(file_space_id);
+	H5Sclose(mem_space_id);
+	H5Pclose(xfer_plist_id);
+	H5Fclose(loc_id);
+	H5Tclose(mem_type_id);
+
+	return 0;
+}
 #endif

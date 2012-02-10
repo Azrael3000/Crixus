@@ -433,7 +433,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 	}
 }
 
-__global__ void calc_ngridp (uf4 *pos, unsigned int *igrid, uf4 *dmin, uf4 *dmax, bool *per, int *ngridp, int maxgridp, float dr, float eps, int nvert, int nbe, float krad, Lock lock){
+__global__ void calc_ngridp (uf4 *pos, unsigned int *igrid, uf4 *dmin, uf4 *dmax, bool *per, int *ngridp, int maxgridp, float dr, float eps, int nvert, int nbe, float krad, Lock lock, int igrids){
 	const unsigned int uibs = 8*sizeof(unsigned int);
 	unsigned int byte[uibs];
 	for(int i=0; i<uibs; i++)
@@ -446,7 +446,6 @@ __global__ void calc_ngridp (uf4 *pos, unsigned int *igrid, uf4 *dmin, uf4 *dmax
 	ngridpl[i_c] = 0;
 
 	while(id<maxgridp){
-		igrid[id] = false;
 		int ipos[3];
 		ipos[2] = id/idim;
 		int tmp = id%idim;
@@ -478,6 +477,7 @@ __global__ void calc_ngridp (uf4 *pos, unsigned int *igrid, uf4 *dmin, uf4 *dmax
 		id += blockDim.x*gridDim.x;
 	}
 
+	__syncthreads();
 	int j = blockDim.x/2;
 	while (j!=0){
 		if(i_c < j){
@@ -491,47 +491,190 @@ __global__ void calc_ngridp (uf4 *pos, unsigned int *igrid, uf4 *dmin, uf4 *dmax
 		lock.lock();
 		*ngridp += ngridpl[0];
 		lock.unlock();
-	}
+	} 
 }
 
-/*__global__ void calc_gpos (uf4 *pos, uf4 *gpos, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float eps, int nvert, int nbe, float krad){
+__device__ float rand(float seed){
+	const unsigned long m = 1UL<<32; //2^32
+	const unsigned long a = 1664525UL;
+	const unsigned long c = 1013904223UL;
+	unsigned long xn = (unsigned long) (seed*float(m));
+	unsigned long xnp1 = (a*xn+c)%m;
+	return (float)((float)xnp1/(float)m);
+}
+
+/*__device__ inline float dot(uf4 a, uf4 b){
+	float spv=0;
+	for(int i=0; i<3; i++)
+		spv += a.a[i]*b.a[i];
+	return spv;
+}*/
+
+__device__ inline float wendland_kernel(float q, float h){
+	const float alpha = 21./16./3.1415926;
+	return alpha/(sqr(sqr(h)))*sqr(sqr((1.-q/2.)))*(1.+2.*q);
+}
+
+__global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock){
 	int id = blockIdx.x*blockDim.x+threadIdx.x;
-	int i_c = threadIdx.x;
+	int i_c = blockIdx.x;
+	__shared__ int nrggaml[threadsPerBlock];
+	nrggaml[i_c] = 0;
 	int idim = (floor(((*dmax).a[1]+eps-(*dmin).a[1])/dr)+1)*(floor(((*dmax).a[0]+eps-(*dmin).a[0])/dr)+1);
 	int jdim =  floor(((*dmax).a[0]+eps-(*dmin).a[0])/dr)+1;
-
-	while(id<maxgridp){
+	float h = hdr*dr;
+	//initializing random number generator
+	float iseed = (float)id/((float)(blockDim.x*gridDim.x))+seed;
+	if(iseed > 1.)
+		iseed -= 1.;
+	iseed = rand(iseed);
+	for(int i=0; i<(int)(iseed*20.); i++)
+		iseed = rand(iseed);
+	//calculate position and neighbours, initialize gam for those who don't have neighbours
+	//find boundary elements and calculate ggam_{pb}
+	while(id < ngridp){
+		//calculate position
 		int ipos[3];
-		ipos[2] = id/idim;
-		int tmp = id%idim;
+		float tpos[3];
+		ipos[2] = (int)(gpos[id].a[3])/idim;
+		int tmp = (int)(gpos[id].a[3])%idim;
 		ipos[1] = tmp/jdim;
 		ipos[0] = tmp%jdim;
-		float gpos[3], rvec[3];
-		for(int i=0; i<3; i++) gpos[i] = (*dmin).a[i] + ((float)ipos[i])*dr;
+		for(int i=0; i<3; i++){
+			gpos[id].a[i] = (*dmin).a[i] + ((float)ipos[i])*dr;
+			tpos[i] = gpos[id].a[i];
+		}
+		//find neighbouring boundary elements
+		int nlink = 0;
+		int link[maxlink];
 		for(int i=0; i<nvert+nbe; i++){
-			bool bbreak = false;
-			for(int j=0; j<3; j++){
-				rvec[j] = gpos[j] - pos[i].a[j];
-				//this introduces a min size for the domain, check it
-				if(per[j]&&fabs(rvec[j])>2*(krad+dr))	rvec[j] += sgn(rvec[j])*(-(*dmax).a[j]+(*dmin).a[j]); //periodicity
-				if(fabs(rvec[j]) > krad+dr+eps){
-					bbreak = true;
-					break;
+			float rvecn = 0.;
+			for(int j=0; j<3; j++) rvecn += sqr(tpos[j]-pos[i].a[j]);
+			if(sqrt(rvecn) <= krad+eps){
+				if(i>=nvert){
+					bool found = false;
+					for(int j=0; j<nlink; j++){
+						if(link[j] == i){
+							found = true;
+							break;
+						}
+					}
+					if(!found){
+						link[nlink] = i;
+						nlink++;
+						if(nlink>maxlink)
+							return;
+					}
+				}
+				else{
+					for(int j=0; j<nbe; j++){
+						for(int k=0; k<3; k++){
+							if(ep[j].a[k] == i){
+								bool found = false;
+								for(int j=0; j<nlink; j++){
+									if(link[j] == i){
+										found = true;
+										break;
+									}
+								}
+								if(!found){
+									link[nlink] = i;
+									nlink++;
+									if(nlink>maxlink)
+										return;
+								}
+								break;
+							}
+						}
+					}
 				}
 			}
-			if(bbreak) continue;
-			if(sqrt(sqr(rvec[0])+sqr(rvec[0])+sqr(rvec[2])) <= krad+dr+eps){
-				ngridpl[i_c] += 1;
-				break;
-			}
 		}
-		id += blockDim.x*gridDim.x;
+		//calculate ggam_{pb}
+		for(int i=0; i<nlink; i++){
+			int ib = link[i];
+			float nggam = 0.;
+			float vol = surf[ib]/(float)ipoints;
+			uf4 edges[3];
+			for(int j=0; j<3; j++){
+				edges[0].a[j] = pos[ep[ib].a[1]].a[j] - pos[ep[ib].a[0]].a[j];
+				edges[1].a[j] = pos[ep[ib].a[2]].a[j] - pos[ep[ib].a[0]].a[j];
+			}
+			uf4 bv[2]; //bv ... basis vectors
+			float vnorm=0.;
+			float sps[5];
+			for(int j=0; j<5; j++)
+				sps[j] = 0.;
+			for(int j=0; j<3; j++){
+				bv[1].a[j] = -edges[2].a[j];
+				vnorm+=sqr(bv[0].a[j]);
+				sps[0] += edges[0].a[j]*edges[0].a[j];
+				sps[1] += edges[0].a[j]*edges[1].a[j];
+				sps[3] += edges[1].a[j]*edges[1].a[j];
+			}
+			vnorm = sqrt(vnorm);
+			float sp=0.;
+			for(int j=0; j<3; j++){
+				bv[0].a[j] /= vnorm;
+				sp += bv[1].a[j]*edges[0].a[j];
+			}
+			vnorm = 0.;
+			for(int j=0; j<3; j++){
+				bv[1].a[j] -= sp*edges[0].a[j];
+				vnorm += sqr(bv[1].a[j]);
+			}
+			vnorm = sqrt(vnorm);
+			for(int j=0; j<3; j++)
+				bv[1].a[j] /= vnorm;
+			for(int j=0; j<ipoints; j++){
+				bool intri = false;
+				while(intri){
+					float tpi[2];
+					iseed = rand(iseed);
+					tpi[0] = iseed;
+					iseed = rand(iseed);
+					tpi[1] = iseed;
+					uf4 tp;
+					sps[2] = 0.;
+					sps[4] = 0.;
+					for(int k=0; k<3; k++){
+						tp.a[k] = tpi[0]*bv[0].a[k] + tpi[1]*bv[1].a[k];
+						edges[2].a[k] = tp.a[k] - pos[ep[ib].a[0]].a[k];
+						sps[2] += edges[0].a[k]*edges[2].a[k];
+						sps[4] += edges[1].a[k]*edges[2].a[k];
+					}
+					float invdet = 1./(sps[0]*sps[3]-sps[1]*sps[1]);
+					float u = (sps[3]*sps[2]-sps[1]*sps[4])*invdet;
+					float v = (sps[0]*sps[4]-sps[1]*sps[2])*invdet;
+					if(u >= 0 && v >= 0 && u + v < 1)
+						intri = true;
+					if(!intri)
+						continue;
+					float q = 0.;
+					for(int k=0; k<3; k++)
+						q += sqr(tp.a[k]-tpos[k]);
+					q = sqrt(q)/h;
+					switch(iker){
+						case 1:
+						default:
+							nggam += wendland_kernel(q,h);
+					}
+				}
+			}
+			for(int j=0; j<3; j++)
+				ggam[id*maxlink*3+i*3+j]  += nggam * vol * norm[ib].a[j];
+		}
+		for(int i=nlink; i<maxlink; i++)
+			ggam[id*maxlink*3+i*3] = -1e10;
+		nrggaml[i_c] += nlink;
+		id+=blockDim.x*gridDim.x;
 	}
 
+	__syncthreads();
 	int j = blockDim.x/2;
 	while (j!=0){
 		if(i_c < j){
-			ngridpl[i_c] += ngridpl[i_c+j];
+			nrggaml[i_c] += nrggaml[i_c+j];
 		}
 		__syncthreads();
 		j /= 2;
@@ -539,10 +682,10 @@ __global__ void calc_ngridp (uf4 *pos, unsigned int *igrid, uf4 *dmin, uf4 *dmax
 
 	if(i_c == 0){
 		lock.lock();
-		*ngridp += ngridpl[0];
+		*nrggam += nrggaml[0];
 		lock.unlock();
-	}
-}*/
+	} 
+}
 
 __global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float ymax, float zmin, float zmax, float eps, float dr, int *nfib, int fmax, Lock lock)
 {
