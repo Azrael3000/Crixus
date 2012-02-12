@@ -554,13 +554,13 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 				if(i>=nvert){
 					bool found = false;
 					for(int j=0; j<nlink; j++){
-						if(link[j] == i){
+						if(link[j] == i-nvert){
 							found = true;
 							break;
 						}
 					}
 					if(!found){
-						link[nlink] = i;
+						link[nlink] = i-nvert;
 						nlink++;
 						if(nlink>maxlink)
 							return;
@@ -571,14 +571,14 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 						for(int k=0; k<3; k++){
 							if(ep[j].a[k] == i){
 								bool found = false;
-								for(int j=0; j<nlink; j++){
-									if(link[j] == i){
+								for(int l=0; l<nlink; l++){
+									if(link[l] == j){
 										found = true;
 										break;
 									}
 								}
 								if(!found){
-									link[nlink] = i;
+									link[nlink] = j;
 									nlink++;
 									if(nlink>maxlink)
 										return;
@@ -626,7 +626,7 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 			vnorm = sqrt(vnorm);
 			for(int j=0; j<3; j++)
 				bv[1].a[j] /= vnorm;
-			for(int j=0; j<ipoints; j++){
+			for(int j=0; j<-1;j++){//ipoints; j++){
 				bool intri = false;
 				while(intri){
 					float tpi[2];

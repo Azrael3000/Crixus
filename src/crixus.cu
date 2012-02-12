@@ -476,7 +476,6 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) igrid  , (void *) igrid_d , igrids*sizeof(unsigned int), cudaMemcpyDeviceToHost) );
 	cudaFree( ngridp_d );
 	cudaFree( igrid_d  );
-	cudaFree( per_d    );
 	cout << " (" << ngridp << ")";
 	cout << " [OK]" << endl;
 
@@ -801,6 +800,7 @@ int crixus_main(int argc, char** argv){
 	cudaFree( vol_d   );
 	cudaFree( surf_d  );
 	cudaFree( ep_d    );
+	cudaFree( per_d   );
 	cudaFree( dmin_d  );
 	cudaFree( dmax_d  );
 
