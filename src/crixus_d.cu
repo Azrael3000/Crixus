@@ -465,7 +465,7 @@ __global__ void calc_ngridp (uf4 *pos, unsigned int *igrid, uf4 *dmin, uf4 *dmax
 				}
 			}
 			if(bbreak) continue;
-			if(sqrt(sqr(rvec[0])+sqr(rvec[0])+sqr(rvec[2])) <= krad+dr+eps){
+			if(sqrt(sqr(rvec[0])+sqr(rvec[1])+sqr(rvec[2])) <= krad+dr+eps){
 				ngridpl[i_c] += 1;
 				int ida = id/uibs;
 				int idi = id%uibs;
@@ -503,21 +503,14 @@ __device__ float rand(float seed){
 	return (float)((float)xnp1/(float)m);
 }
 
-/*__device__ inline float dot(uf4 a, uf4 b){
-	float spv=0;
-	for(int i=0; i<3; i++)
-		spv += a.a[i]*b.a[i];
-	return spv;
-}*/
-
 __device__ inline float wendland_kernel(float q, float h){
 	const float alpha = 21./16./3.1415926;
 	return alpha/(sqr(sqr(h)))*sqr(sqr((1.-q/2.)))*(1.+2.*q);
 }
 
-__global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock){
+__global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock, float *deb){
 	int id = blockIdx.x*blockDim.x+threadIdx.x;
-	int i_c = blockIdx.x;
+	int i_c = threadIdx.x;
 	__shared__ int nrggaml[threadsPerBlock];
 	nrggaml[i_c] = 0;
 	int idim = (floor(((*dmax).a[1]+eps-(*dmin).a[1])/dr)+1)*(floor(((*dmax).a[0]+eps-(*dmin).a[0])/dr)+1);
@@ -562,8 +555,10 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 					if(!found){
 						link[nlink] = i-nvert;
 						nlink++;
-						if(nlink>maxlink)
+						if(nlink>maxlink){
+							per[2] = true;
 							return;
+						}
 					}
 				}
 				else{
@@ -580,8 +575,10 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 								if(!found){
 									link[nlink] = j;
 									nlink++;
-									if(nlink>maxlink)
+									if(nlink>maxlink){
+										per[2] = true;
 										return;
+									}
 								}
 								break;
 							}
@@ -606,7 +603,8 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 			for(int j=0; j<5; j++)
 				sps[j] = 0.;
 			for(int j=0; j<3; j++){
-				bv[1].a[j] = -edges[2].a[j];
+				bv[0].a[j] = edges[0].a[j];
+				bv[1].a[j] = edges[1].a[j];
 				vnorm+=sqr(bv[0].a[j]);
 				sps[0] += edges[0].a[j]*edges[0].a[j];
 				sps[1] += edges[0].a[j]*edges[1].a[j];
@@ -616,19 +614,29 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 			float sp=0.;
 			for(int j=0; j<3; j++){
 				bv[0].a[j] /= vnorm;
-				sp += bv[1].a[j]*edges[0].a[j];
+				sp += bv[0].a[j]*bv[1].a[j];
 			}
 			vnorm = 0.;
 			for(int j=0; j<3; j++){
-				bv[1].a[j] -= sp*edges[0].a[j];
+				bv[1].a[j] -= sp*bv[0].a[j];
 				vnorm += sqr(bv[1].a[j]);
 			}
 			vnorm = sqrt(vnorm);
-			for(int j=0; j<3; j++)
+			for(int j=0; j<3; j++){
 				bv[1].a[j] /= vnorm;
-			for(int j=0; j<-1;j++){//ipoints; j++){
+				ggam[id*maxlink*3+i*3+j]  = 0.;
+/*				if(id==0){
+					deb[0+j] = bv[0].a[j];
+					deb[3+j] = bv[1].a[j];
+					deb[6+j] = edges[0].a[j];
+					deb[9+j] = edges[1].a[j];
+				} 
+*/			}
+			for(int j=0; j<ipoints; j++){
 				bool intri = false;
-				while(intri){
+				int it = 0;
+				while(!intri){
+					//generate random point inside span(bv[i])
 					float tpi[2];
 					iseed = rand(iseed);
 					tpi[0] = iseed;
@@ -638,16 +646,31 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 					sps[2] = 0.;
 					sps[4] = 0.;
 					for(int k=0; k<3; k++){
-						tp.a[k] = tpi[0]*bv[0].a[k] + tpi[1]*bv[1].a[k];
+						tp.a[k] = tpi[0]*bv[0].a[k] + tpi[1]*bv[1].a[k] + pos[ep[ib].a[0]].a[k];
 						edges[2].a[k] = tp.a[k] - pos[ep[ib].a[0]].a[k];
 						sps[2] += edges[0].a[k]*edges[2].a[k];
 						sps[4] += edges[1].a[k]*edges[2].a[k];
+//						if(id==0) deb[12+k] = edges[2].a[k];
 					}
 					float invdet = 1./(sps[0]*sps[3]-sps[1]*sps[1]);
 					float u = (sps[3]*sps[2]-sps[1]*sps[4])*invdet;
 					float v = (sps[0]*sps[4]-sps[1]*sps[2])*invdet;
+					//point inside triangle?
 					if(u >= 0 && v >= 0 && u + v < 1)
 						intri = true;
+/*					if(id==0){
+						deb[15] = u;
+						deb[16] = v;
+						deb[17] = intri?1.:0.;
+						deb[18] = (float)it;
+					}*/
+					it++;
+/*					if(intri || it > 1000){
+						deb[id] = (float) it;
+						//if(i==1)return;
+					} */
+					if(it > 1000)
+						return; // no point was inside triangle. bad luck?
 					if(!intri)
 						continue;
 					float q = 0.;
@@ -667,15 +690,44 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 		for(int i=nlink; i<maxlink; i++)
 			ggam[id*maxlink*3+i*3] = -1e10;
 		nrggaml[i_c] += nlink;
+//		if(id>=1024)
+//			deb[id-512] = nlink;
+		id+=blockDim.x*gridDim.x;
+	} 
+	//calculate gamma
+	//find the ones with gamma = 1
+	id = blockIdx.x*blockDim.x+threadIdx.x;
+	while(id<ngridp){
+		bool found = false;
+		for(int i=0; i<nvert+nbe; i++){
+			float dist = 0.;
+			for(int j=0; j<3; j++)
+				dist += sqr(pos[i].a[j]-gpos[id].a[j]);
+			if(sqrt(dist) < krad+eps){
+				found = true;
+				break;
+			}
+		}
+		if(!found)
+			gam[id] = 1.;
+		id+=blockDim.x*gridDim.x;
+	}
+	//calculate the others using Lobato
+	id = blockIdx.x*blockDim.x+threadIdx.x;
+	while(id<ngridp){
 		id+=blockDim.x*gridDim.x;
 	}
 
-	__syncthreads();
+//for some reason I have to use the atomicAdd function here. why?
+//	if(blockIdx.x==2){
+//		deb[blockIdx.x*blockDim.x + threadIdx.x] = nrggaml[i_c]; //nlink;
+//	}
+	atomicAdd(nrggam,nrggaml[i_c]);
+	/*__syncthreads();
 	int j = blockDim.x/2;
 	while (j!=0){
-		if(i_c < j){
+		if(i_c < j)
 			nrggaml[i_c] += nrggaml[i_c+j];
-		}
 		__syncthreads();
 		j /= 2;
 	}
@@ -684,7 +736,7 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 		lock.lock();
 		*nrggam += nrggaml[0];
 		lock.unlock();
-	} 
+	}*/
 }
 
 __global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float ymax, float zmin, float zmax, float eps, float dr, int *nfib, int fmax, Lock lock)

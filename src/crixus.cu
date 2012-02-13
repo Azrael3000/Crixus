@@ -512,20 +512,26 @@ int crixus_main(int argc, char** argv){
 	}
 	delete [] igrid;
 	nrggam = 0;
+	float *deb, *deb_d;
 	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos_d  , (void *)  gpos  , ngridp*sizeof(uf4), cudaMemcpyHostToDevice) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) nrggam_d, (void *) &nrggam,        sizeof(int), cudaMemcpyHostToDevice) );
 	numBlocks = (int) ceil((float)ngridp/(float)numThreads);
 	numBlocks = min(numBlocks,maxblock);
+	deb = new float[numBlocks*numThreads];
+	CUDA_SAFE_CALL( cudaMalloc((void **) &deb_d, numBlocks*numThreads*sizeof(float)) );
 	Lock lock_gpoints;
 	float seed = 0.5; //insert time here
 	
-	init_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints);
+	init_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d);
 
-	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos  , (void *) gpos_d  ,           ngridp*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) gam   , (void *) gam_d   ,           ngridp*sizeof(float), cudaMemcpyDeviceToHost) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) ggam  , (void *) ggam_d  , ngridp*maxlink*3*sizeof(float), cudaMemcpyDeviceToHost) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) nrggam, (void *) nrggam_d,                  sizeof(int  ), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) deb   , (void *) deb_d  ,           numBlocks*numThreads*sizeof(float), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos   , (void *) gpos_d  ,           ngridp*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) gam    , (void *) gam_d   ,           ngridp*sizeof(float), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) ggam   , (void *) ggam_d  , ngridp*maxlink*3*sizeof(float), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) &nrggam, (void *) nrggam_d,                  sizeof(int  ), cudaMemcpyDeviceToHost) );
+//	for(int i=0; i<ngridp; i++) cout << deb[i] << endl;
 
+	cudaFree(&deb_d);
 	cout << " [OK]" << endl;
 
 	//setting up fluid particles
@@ -717,26 +723,46 @@ int crixus_main(int argc, char** argv){
 	gbuf = new gOutBuf[ngridp];
 	linkbuf = new linkOutBuf[nrggam];
 	k=0;
+	int blub = 0;
 	for(int i=0; i<ngridp; i++){
 		gbuf[i].x   = gpos[i].a[0];
 		gbuf[i].y   = gpos[i].a[1];
 		gbuf[i].z   = gpos[i].a[2];
 		gbuf[i].id  = (int) gpos[i].a[3];
 		gbuf[i].gam = gam[i];
+		int bla = k;
 		for(int j=0; j<maxlink; j++){
 			if(ggam[i*maxlink*3+j*3] < -1e9)
 				break;
+			if(k<nrggam){
 			linkbuf[k].id    = gbuf[i].id;
 			linkbuf[k].ggamx = ggam[i*maxlink*3+j*3];
 			linkbuf[k].ggamy = ggam[i*maxlink*3+j*3+1];
 			linkbuf[k].ggamz = ggam[i*maxlink*3+j*3+2];
 			k++;
+			}
 			if(k>nrggam){
+//	cout << blub << endl;
+//				cout << k << " " << nrggam << " " << i << " " << j << endl;
 				cout << " [FAILED]" << endl;
 				return NRGGAM_WRONG;
 			}
 		}
+//if(k-bla!=deb[i]&&i>=1024)		cout << bla << " " << k << " " << k-bla << " " << deb[i] << " " << i <<  endl;
+if(i>=1024){	//		cout << i << " " << j << " " << ggam[i*maxlink*3+j*3] << " " << ggam[i*maxlink*3+j*3+1] << " " << ggam[i*maxlink*3+j*3+2] << " " << k << endl;
+//cout << i << " " << deb[i] << " " << deb[i-512] << " " << (abs(deb[i]-deb[i-512])==0? 0 : 1) << endl;
+//blub += deb[i];
+}
 	}
+	for(int i=ngridp; i<1536; i++){
+	//	cout << deb[i] << " " << i << endl;
+	}
+	//cout << blub << endl;
+	//cout << k << " " << nrggam << endl;
+	if(k!=nrggam){
+	 cout << " [FAILED]" << endl;
+	 return NRGGAM_WRONG;
+	}	
 	cout << " [OK]" << endl;
 
 	//Output of gridpoints
@@ -749,8 +775,8 @@ int crixus_main(int argc, char** argv){
 	fname[4] = 'i';
 	fname[5] = 'd';
 	fname[6] = '.';
-	strncpy(fname+7, argv[1], flen-8);
-	strncpy(fname+flen-1, fend, strlen(fend));
+	strncpy(fname+7, argv[1], flen-3);
+	strncpy(fname+flen+4, fend, strlen(fend));
 	fname[flen+9] = '\0';
 	cout << "Writing grid to file " << fname << " ...";
 	err = hdf5_grid_output( gbuf, ngridp, fname, &time);
@@ -770,11 +796,11 @@ int crixus_main(int argc, char** argv){
 	fname[4] = 'n';
 	fname[5] = 'k';
 	fname[6] = '.';
-	strncpy(fname+7, argv[1], flen-8);
-	strncpy(fname+flen-1, fend, strlen(fend));
+	strncpy(fname+7, argv[1], flen-3);
+	strncpy(fname+flen+4, fend, strlen(fend));
 	fname[flen+9] = '\0';
 	cout << "Writing grid ggam links to file " << fname << " ...";
-	err = hdf5_link_output( linkbuf, ngridp, fname, &time);
+	err = hdf5_link_output( linkbuf, nrggam, fname, &time);
 	if(err==0){ cout << " [OK]" << endl; }
 	else {
 		cout << " [FAILED]" << endl;
