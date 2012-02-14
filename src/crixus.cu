@@ -484,13 +484,16 @@ int crixus_main(int argc, char** argv){
 	uf4   *gpos , *gpos_d;   // position of grid point and index
 	float *gam  , *gam_d;    // gamma of grid point
 	float *ggam , *ggam_d;   // grad gamma_{pb} of grid point
+	int   *iggam, *iggam_d;  // index of boundary element
 	int   nrggam, *nrggam_d; // number of links of all grid points
-	gpos = new uf4  [ngridp];
-	gam  = new float[ngridp];
-	ggam = new float[ngridp*maxlink*3];
+	gpos  = new uf4  [ngridp];
+	gam   = new float[ngridp];
+	ggam  = new float[ngridp*maxlink*3];
+	iggam = new int[ngridp*maxlink];
 	CUDA_SAFE_CALL( cudaMalloc((void **) &gpos_d  ,           ngridp*sizeof(uf4  )) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &gam_d   ,           ngridp*sizeof(float)) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &ggam_d  , ngridp*maxlink*3*sizeof(float)) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &iggam_d ,   ngridp*maxlink*sizeof(int  )) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &nrggam_d,                  sizeof(int  )) );
 	//setting indices
 	const unsigned int uibs = 8*sizeof(unsigned int);
@@ -522,16 +525,22 @@ int crixus_main(int argc, char** argv){
 	Lock lock_gpoints;
 	float seed = 0.5; //insert time here
 	
-	init_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d);
+	init_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, iggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d);
 
 	CUDA_SAFE_CALL( cudaMemcpy((void *) deb   , (void *) deb_d  ,           numBlocks*numThreads*sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos   , (void *) gpos_d  ,           ngridp*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) gam    , (void *) gam_d   ,           ngridp*sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) ggam   , (void *) ggam_d  , ngridp*maxlink*3*sizeof(float), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) iggam  , (void *) iggam_d ,   ngridp*maxlink*sizeof(int  ), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) &nrggam, (void *) nrggam_d,                  sizeof(int  ), cudaMemcpyDeviceToHost) );
-//	for(int i=0; i<ngridp; i++) cout << deb[i] << endl;
+	//for(int i=0; i<numBlocks*numThreads; i++) if(deb[i] < 0.5 && deb[i] > 0.000001) cout << deb[i] << endl;
+	for(int i=0; i<24; i+= 3)  cout << deb[i] << " " << deb[i+1] << " " << deb[i+2] << endl;
 
-	cudaFree(&deb_d);
+	cudaFree(deb_d   );
+	cudaFree(gpos_d  );
+	cudaFree(ggam_d  );
+	cudaFree(iggam_d );
+	cudaFree(nrggam_d);
 	cout << " [OK]" << endl;
 
 	//setting up fluid particles
@@ -582,7 +591,6 @@ int crixus_main(int argc, char** argv){
 		cudaFree( fpos_d );
 		nfluid_in_box[nfbox] = nfib;
 		nfluid += nfib;
-		cudaFree(fpos_d);
 		nfbox += 1;
 
 		cont = 'n';
@@ -723,42 +731,35 @@ int crixus_main(int argc, char** argv){
 	gbuf = new gOutBuf[ngridp];
 	linkbuf = new linkOutBuf[nrggam];
 	k=0;
-	int blub = 0;
 	for(int i=0; i<ngridp; i++){
 		gbuf[i].x   = gpos[i].a[0];
 		gbuf[i].y   = gpos[i].a[1];
 		gbuf[i].z   = gpos[i].a[2];
 		gbuf[i].id  = (int) gpos[i].a[3];
 		gbuf[i].gam = gam[i];
-		int bla = k;
+		gbuf[i].ggamx = 0.;
+		gbuf[i].ggamy = 0.;
+		gbuf[i].ggamz = 0.;
 		for(int j=0; j<maxlink; j++){
 			if(ggam[i*maxlink*3+j*3] < -1e9)
 				break;
 			if(k<nrggam){
 			linkbuf[k].id    = gbuf[i].id;
+			linkbuf[k].iggam = iggam[i*maxlink+j];
 			linkbuf[k].ggamx = ggam[i*maxlink*3+j*3];
 			linkbuf[k].ggamy = ggam[i*maxlink*3+j*3+1];
 			linkbuf[k].ggamz = ggam[i*maxlink*3+j*3+2];
+			gbuf[i].ggamx += linkbuf[k].ggamx;
+			gbuf[i].ggamy += linkbuf[k].ggamy;
+			gbuf[i].ggamz += linkbuf[k].ggamz;
 			k++;
 			}
 			if(k>nrggam){
-//	cout << blub << endl;
-//				cout << k << " " << nrggam << " " << i << " " << j << endl;
 				cout << " [FAILED]" << endl;
 				return NRGGAM_WRONG;
 			}
 		}
-//if(k-bla!=deb[i]&&i>=1024)		cout << bla << " " << k << " " << k-bla << " " << deb[i] << " " << i <<  endl;
-if(i>=1024){	//		cout << i << " " << j << " " << ggam[i*maxlink*3+j*3] << " " << ggam[i*maxlink*3+j*3+1] << " " << ggam[i*maxlink*3+j*3+2] << " " << k << endl;
-//cout << i << " " << deb[i] << " " << deb[i-512] << " " << (abs(deb[i]-deb[i-512])==0? 0 : 1) << endl;
-//blub += deb[i];
-}
 	}
-	for(int i=ngridp; i<1536; i++){
-	//	cout << deb[i] << " " << i << endl;
-	}
-	//cout << blub << endl;
-	//cout << k << " " << nrggam << endl;
 	if(k!=nrggam){
 	 cout << " [FAILED]" << endl;
 	 return NRGGAM_WRONG;
@@ -820,6 +821,9 @@ if(i>=1024){	//		cout << i << " " << j << " " << ggam[i*maxlink*3+j*3] << " " <<
 	for(unsigned int i=0; i<nfbox; i++)
 		delete [] fpos[i];
 	delete [] fpos;
+	delete [] ggam;
+	delete [] iggam;
+	delete [] gpos;
 	//Cuda
 	cudaFree( norm_d  );
 	cudaFree( pos_d   );
@@ -900,6 +904,9 @@ int hdf5_grid_output (gOutBuf *buf, int len, const char *filename, float *timeva
 	H5Tinsert(mem_type_id, "Coords_2"       , HOFFSET(gOutBuf, z),       H5T_NATIVE_FLOAT);
 	H5Tinsert(mem_type_id, "Gamma"          , HOFFSET(gOutBuf, gam),     H5T_NATIVE_FLOAT);
 	H5Tinsert(mem_type_id, "Index"          , HOFFSET(gOutBuf, id),      H5T_NATIVE_INT);
+	H5Tinsert(mem_type_id, "grad_gamma_0"   , HOFFSET(gOutBuf, ggamx),   H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "grad_gamma_1"   , HOFFSET(gOutBuf, ggamy),   H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "grad_gamma_2"   , HOFFSET(gOutBuf, ggamz),   H5T_NATIVE_FLOAT);
 
 	dataset_id = H5Dcreate(loc_id, DATASETNAME, mem_type_id, file_space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 	H5Sclose(file_space_id);
@@ -935,6 +942,7 @@ int hdf5_link_output (linkOutBuf *buf, int len, const char *filename, float *tim
 	mem_type_id = H5Tcreate(H5T_COMPOUND, sizeof(linkOutBuf));
 
 	H5Tinsert(mem_type_id, "Index"          , HOFFSET(linkOutBuf, id),      H5T_NATIVE_INT);
+	H5Tinsert(mem_type_id, "boundary_index" , HOFFSET(linkOutBuf, iggam),   H5T_NATIVE_INT);
 	H5Tinsert(mem_type_id, "grad_gamma_0"   , HOFFSET(linkOutBuf, ggamx),   H5T_NATIVE_FLOAT);
 	H5Tinsert(mem_type_id, "grad_gamma_1"   , HOFFSET(linkOutBuf, ggamy),   H5T_NATIVE_FLOAT);
 	H5Tinsert(mem_type_id, "grad_gamma_2"   , HOFFSET(linkOutBuf, ggamz),   H5T_NATIVE_FLOAT);

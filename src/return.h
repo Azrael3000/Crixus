@@ -14,5 +14,7 @@
 #define WRONG_INPUT -11
 #define BITFIELD_WRONG -12
 #define NRGGAM_WRONG -13
+#define MAXLINK_TOO_SMALL -14
+#define MC_FAIL -15
 
 #endif
