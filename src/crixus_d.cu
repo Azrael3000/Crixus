@@ -508,14 +508,191 @@ __device__ inline float wendland_kernel(float q, float h){
 	return alpha/(sqr(sqr(h)))*sqr(sqr((1.-q/2.)))*(1.+2.*q);
 }
 
-__global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock, float *deb){
+__device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *ggam, int *iggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float iseed, bool ongpoint, int id){
+	//find neighbouring boundary elements
+	int nlink = 0;
+	int link[maxlink];
+	float h = hdr*dr;
+	for(int i=0; i<nvert+nbe; i++){
+		float rvecn = 0.;
+		for(int j=0; j<3; j++) rvecn += sqr(tpos.a[j]-pos[i].a[j]);
+		if(sqrt(rvecn) <= krad+eps){
+			if(i>=nvert){
+				bool found = false;
+				for(int j=0; j<nlink; j++){
+					if(link[j] == i-nvert){
+						found = true;
+						break;
+					}
+				}
+				if(!found){
+					link[nlink] = i-nvert;
+					nlink++;
+					if(nlink>maxlink){
+						//deb[8] = id;
+						return MAXLINK_TOO_SMALL;
+					}
+				}
+			}
+			else{
+				for(int j=0; j<nbe; j++){
+					for(int k=0; k<3; k++){
+						if(ep[j].a[k] == i){
+							bool found = false;
+							for(int l=0; l<nlink; l++){
+								if(link[l] == j){
+									found = true;
+									break;
+								}
+							}
+							if(!found){
+								link[nlink] = j;
+								nlink++;
+								if(nlink>maxlink){
+									//deb[8] = id;
+									return MAXLINK_TOO_SMALL;
+								}
+							}
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+	//calculate ggam_{pb}
+	for(int i=0; i<nlink; i++){
+		int ib = link[i];
+		float nggam = 0.;
+		float vol = surf[ib]/(float)ipoints;
+		uf4 edges[3];
+		for(int j=0; j<3; j++){
+			edges[0].a[j] = pos[ep[ib].a[1]].a[j] - pos[ep[ib].a[0]].a[j];
+			edges[1].a[j] = pos[ep[ib].a[2]].a[j] - pos[ep[ib].a[0]].a[j];
+		}
+		uf4 bv[2]; //bv ... basis vectors
+		float vnorm=0.;
+		float sps[5];
+		for(int j=0; j<5; j++)
+			sps[j] = 0.;
+		for(int j=0; j<3; j++){
+			bv[0].a[j] = edges[0].a[j];
+			bv[1].a[j] = edges[1].a[j];
+			vnorm+=sqr(bv[0].a[j]);
+			sps[0] += edges[0].a[j]*edges[0].a[j];
+			sps[1] += edges[0].a[j]*edges[1].a[j];
+			sps[3] += edges[1].a[j]*edges[1].a[j];
+		}
+		vnorm = sqrt(vnorm);
+		bv[0].a[3] = vnorm;
+		float sp=0.;
+		for(int j=0; j<3; j++){
+			bv[0].a[j] /= vnorm;
+			sp += bv[0].a[j]*bv[1].a[j];
+		}
+		vnorm = 0.;
+		for(int j=0; j<3; j++){
+			bv[1].a[j] -= sp*bv[0].a[j];
+			vnorm += sqr(bv[1].a[j]);
+		}
+		vnorm = sqrt(vnorm);
+		float spbv1[2];
+		spbv1[0] = 0.;
+		spbv1[1] = 0.;
+		for(int j=0; j<3; j++){
+			bv[1].a[j] /= vnorm;
+			spbv1[0] += bv[0].a[j]*edges[1].a[j];
+			spbv1[1] += bv[1].a[j]*edges[1].a[j];
+			if(ongpoint) ggam[id*maxlink*3+i*3+j]  = 0.;
+		}
+		vnorm = max(bv[0].a[3],max(spbv1[0],spbv1[1]));
+		for(int j=0; j<3; j++){
+			bv[0].a[j] *= vnorm;
+			bv[1].a[j] *= vnorm;
+		}
+		/*if(id==1269){
+			for(int j=0; j<3; j++){
+				deb[j+0] = edges[0].a[j];
+				deb[j+3] = edges[1].a[j];
+				deb[j+6] = bv[0].a[j];
+				deb[j+9] = bv[1].a[j];
+			}
+		}*/
+		for(int j=0; j<ipoints; j++){
+			bool intri = false;
+			int it = 0;
+			while(!intri){
+				//generate random point inside span(bv[i])
+				float tpi[2];
+				iseed = rand(iseed);
+				tpi[0] = iseed;
+				iseed = rand(iseed);
+				tpi[1] = iseed;
+				uf4 tp;
+				sps[2] = 0.;
+				sps[4] = 0.;
+				for(int k=0; k<3; k++){
+					tp.a[k] = tpi[0]*bv[0].a[k] + tpi[1]*bv[1].a[k] + pos[ep[ib].a[0]].a[k];
+					edges[2].a[k] = tp.a[k] - pos[ep[ib].a[0]].a[k];
+					sps[2] += edges[0].a[k]*edges[2].a[k];
+					sps[4] += edges[1].a[k]*edges[2].a[k];
+				}
+				float invdet = 1./(sps[0]*sps[3]-sps[1]*sps[1]);
+				float u = (sps[3]*sps[2]-sps[1]*sps[4])*invdet;
+				float v = (sps[0]*sps[4]-sps[1]*sps[2])*invdet;
+				/*if(id==1269){
+					for(int k=0; k<3; k++){
+						deb[k+12] = edges[2].a[k];
+						deb[k+18] = tp.a[k];
+					}
+					deb[15] = u;
+					deb[16] = v;
+					deb[17] = invdet;
+					deb[21] = vnorm;
+				}*/
+				//point inside triangle?
+				if(u >= 0 && v >= 0 && u + v < 1)
+					intri = true;
+				it++;
+				if(it > 1000){
+					//deb[23] = -(float) id;
+					return MC_FAIL; }// no point was inside triangle. bad luck?
+				if(!intri)
+					continue;
+				float q = 0.;
+				for(int k=0; k<3; k++)
+					q += sqr(tp.a[k]-tpos.a[k]);
+				q = sqrt(q)/h;
+				switch(iker){
+					case 1:
+					default:
+						nggam += wendland_kernel(q,h);
+				}
+			}
+		}
+		for(int j=0; j<3; j++){
+			if(ongpoint){
+				ggam[id*maxlink*3+i*3+j]  += nggam * vol * norm[ib].a[j];
+			}
+			else{
+				ggam[j] += nggam * vol * norm[ib].a[j];
+			}
+		}
+		if(ongpoint)
+			iggam[id*maxlink+i] = ib;
+	}
+	return nlink;
+}
+
+__global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, int *iggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock, float *deb){
 	int id = blockIdx.x*blockDim.x+threadIdx.x;
 	int i_c = threadIdx.x;
+	deb[id] = 0.;
 	__shared__ int nrggaml[threadsPerBlock];
 	nrggaml[i_c] = 0;
-	int idim = (floor(((*dmax).a[1]+eps-(*dmin).a[1])/dr)+1)*(floor(((*dmax).a[0]+eps-(*dmin).a[0])/dr)+1);
-	int jdim =  floor(((*dmax).a[0]+eps-(*dmin).a[0])/dr)+1;
-	float h = hdr*dr;
+	int dim[3];
+	for(int i=0; i<3; i++)
+		dim[i] = (floor(((*dmax).a[i]+eps-(*dmin).a[i])/dr)+1);
 	//initializing random number generator
 	float iseed = (float)id/((float)(blockDim.x*gridDim.x))+seed;
 	if(iseed > 1.)
@@ -528,170 +705,24 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 	while(id < ngridp){
 		//calculate position
 		int ipos[3];
-		float tpos[3];
-		ipos[2] = (int)(gpos[id].a[3])/idim;
-		int tmp = (int)(gpos[id].a[3])%idim;
-		ipos[1] = tmp/jdim;
-		ipos[0] = tmp%jdim;
+		uf4 tpos;
+		ipos[2] = (int)(gpos[id].a[3])/(dim[0]*dim[1]);
+		int tmp = (int)(gpos[id].a[3])%(dim[0]*dim[1]);
+		ipos[1] = tmp/dim[0];
+		ipos[0] = tmp%dim[0];
 		for(int i=0; i<3; i++){
 			gpos[id].a[i] = (*dmin).a[i] + ((float)ipos[i])*dr;
-			tpos[i] = gpos[id].a[i];
+			tpos.a[i] = gpos[id].a[i];
 		}
-		//find neighbouring boundary elements
-		int nlink = 0;
-		int link[maxlink];
-		for(int i=0; i<nvert+nbe; i++){
-			float rvecn = 0.;
-			for(int j=0; j<3; j++) rvecn += sqr(tpos[j]-pos[i].a[j]);
-			if(sqrt(rvecn) <= krad+eps){
-				if(i>=nvert){
-					bool found = false;
-					for(int j=0; j<nlink; j++){
-						if(link[j] == i-nvert){
-							found = true;
-							break;
-						}
-					}
-					if(!found){
-						link[nlink] = i-nvert;
-						nlink++;
-						if(nlink>maxlink){
-							per[2] = true;
-							return;
-						}
-					}
-				}
-				else{
-					for(int j=0; j<nbe; j++){
-						for(int k=0; k<3; k++){
-							if(ep[j].a[k] == i){
-								bool found = false;
-								for(int l=0; l<nlink; l++){
-									if(link[l] == j){
-										found = true;
-										break;
-									}
-								}
-								if(!found){
-									link[nlink] = j;
-									nlink++;
-									if(nlink>maxlink){
-										per[2] = true;
-										return;
-									}
-								}
-								break;
-							}
-						}
-					}
-				}
-			}
-		}
-		//calculate ggam_{pb}
-		for(int i=0; i<nlink; i++){
-			int ib = link[i];
-			float nggam = 0.;
-			float vol = surf[ib]/(float)ipoints;
-			uf4 edges[3];
-			for(int j=0; j<3; j++){
-				edges[0].a[j] = pos[ep[ib].a[1]].a[j] - pos[ep[ib].a[0]].a[j];
-				edges[1].a[j] = pos[ep[ib].a[2]].a[j] - pos[ep[ib].a[0]].a[j];
-			}
-			uf4 bv[2]; //bv ... basis vectors
-			float vnorm=0.;
-			float sps[5];
-			for(int j=0; j<5; j++)
-				sps[j] = 0.;
-			for(int j=0; j<3; j++){
-				bv[0].a[j] = edges[0].a[j];
-				bv[1].a[j] = edges[1].a[j];
-				vnorm+=sqr(bv[0].a[j]);
-				sps[0] += edges[0].a[j]*edges[0].a[j];
-				sps[1] += edges[0].a[j]*edges[1].a[j];
-				sps[3] += edges[1].a[j]*edges[1].a[j];
-			}
-			vnorm = sqrt(vnorm);
-			float sp=0.;
-			for(int j=0; j<3; j++){
-				bv[0].a[j] /= vnorm;
-				sp += bv[0].a[j]*bv[1].a[j];
-			}
-			vnorm = 0.;
-			for(int j=0; j<3; j++){
-				bv[1].a[j] -= sp*bv[0].a[j];
-				vnorm += sqr(bv[1].a[j]);
-			}
-			vnorm = sqrt(vnorm);
-			for(int j=0; j<3; j++){
-				bv[1].a[j] /= vnorm;
-				ggam[id*maxlink*3+i*3+j]  = 0.;
-/*				if(id==0){
-					deb[0+j] = bv[0].a[j];
-					deb[3+j] = bv[1].a[j];
-					deb[6+j] = edges[0].a[j];
-					deb[9+j] = edges[1].a[j];
-				} 
-*/			}
-			for(int j=0; j<ipoints; j++){
-				bool intri = false;
-				int it = 0;
-				while(!intri){
-					//generate random point inside span(bv[i])
-					float tpi[2];
-					iseed = rand(iseed);
-					tpi[0] = iseed;
-					iseed = rand(iseed);
-					tpi[1] = iseed;
-					uf4 tp;
-					sps[2] = 0.;
-					sps[4] = 0.;
-					for(int k=0; k<3; k++){
-						tp.a[k] = tpi[0]*bv[0].a[k] + tpi[1]*bv[1].a[k] + pos[ep[ib].a[0]].a[k];
-						edges[2].a[k] = tp.a[k] - pos[ep[ib].a[0]].a[k];
-						sps[2] += edges[0].a[k]*edges[2].a[k];
-						sps[4] += edges[1].a[k]*edges[2].a[k];
-//						if(id==0) deb[12+k] = edges[2].a[k];
-					}
-					float invdet = 1./(sps[0]*sps[3]-sps[1]*sps[1]);
-					float u = (sps[3]*sps[2]-sps[1]*sps[4])*invdet;
-					float v = (sps[0]*sps[4]-sps[1]*sps[2])*invdet;
-					//point inside triangle?
-					if(u >= 0 && v >= 0 && u + v < 1)
-						intri = true;
-/*					if(id==0){
-						deb[15] = u;
-						deb[16] = v;
-						deb[17] = intri?1.:0.;
-						deb[18] = (float)it;
-					}*/
-					it++;
-/*					if(intri || it > 1000){
-						deb[id] = (float) it;
-						//if(i==1)return;
-					} */
-					if(it > 1000)
-						return; // no point was inside triangle. bad luck?
-					if(!intri)
-						continue;
-					float q = 0.;
-					for(int k=0; k<3; k++)
-						q += sqr(tp.a[k]-tpos[k]);
-					q = sqrt(q)/h;
-					switch(iker){
-						case 1:
-						default:
-							nggam += wendland_kernel(q,h);
-					}
-				}
-			}
-			for(int j=0; j<3; j++)
-				ggam[id*maxlink*3+i*3+j]  += nggam * vol * norm[ib].a[j];
-		}
-		for(int i=nlink; i<maxlink; i++)
+
+		//calculate ggam at tpos
+		int nlink = calc_ggam(tpos, pos, ep, surf, norm, gpos, ggam, iggam, dmin, dmax, per, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, iseed, true, id);
+
+		for(int i=nlink; i<maxlink; i++){
 			ggam[id*maxlink*3+i*3] = -1e10;
+			iggam[id*maxlink+i] = -1;
+		}
 		nrggaml[i_c] += nlink;
-//		if(id>=1024)
-//			deb[id-512] = nlink;
 		id+=blockDim.x*gridDim.x;
 	} 
 	//calculate gamma
@@ -699,29 +730,159 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 	id = blockIdx.x*blockDim.x+threadIdx.x;
 	while(id<ngridp){
 		bool found = false;
+		float mindist = 1e10;
+		int imin = -1;
 		for(int i=0; i<nvert+nbe; i++){
 			float dist = 0.;
 			for(int j=0; j<3; j++)
 				dist += sqr(pos[i].a[j]-gpos[id].a[j]);
+			if(dist < mindist && i >= nvert){
+				mindist = dist;
+				imin = i-nvert;
+			}
 			if(sqrt(dist) < krad+eps){
 				found = true;
 				break;
 			}
 		}
-		if(!found)
-			gam[id] = 1.;
+		if(!found){
+			//ensure that grid point is inside the fluid
+			float sp = 0.;
+			for(int i=0; i<3; i++)
+				sp += (gpos[id].a[i]-pos[imin+nvert].a[i])*norm[imin].a[i];
+			if(sp>0.){
+				gam[id] = 1.;
+			}
+			else{
+				gam[id] = 0.;
+			}
+		}
+		else{
+			gam[id] = 0.;
+		}
 		id+=blockDim.x*gridDim.x;
 	}
+
+	if(i_c==0){
+		lock.lock();
+		lock.unlock();
+	}
+	__syncthreads();
+
 	//calculate the others using Lobato
 	id = blockIdx.x*blockDim.x+threadIdx.x;
 	while(id<ngridp){
+		//find neighbouring grid points, don't look for diagonal ones, shouldn't be necessary
+		//there is the possibility of a very unlikely case that the higher id's need to be calculated first. so blocking here is not the ideal option but it should work
+		int neibs[6], idneibs[6];
+		int ipos[3];
+		ipos[2] = (int)(gpos[id].a[3])/(dim[0]*dim[1]);
+		int tmp = (int)(gpos[id].a[3])%(dim[0]*dim[1]);
+		ipos[1] = tmp/dim[0];
+		ipos[0] = tmp%dim[0];
+		//get id of neigbouring grid points
+		for(int i=0; i<6; i++){
+			int di[3];
+			for(int j=0; j<3; j++)
+				di[j] = ((i%2)*2-1)*((i/2==j)?1:0);
+			if(ipos[i/2]==(dim[i/2]-1)*(i%2) && !per[i/2]){
+				idneibs[i] = -1;
+			}
+			else{
+				idneibs[i] = (ipos[0]+di[0])%dim[0] + ((ipos[1]+di[1])%dim[1])*dim[0] + ((ipos[2]+di[2])%dim[2])*dim[0]*dim[1];
+			}
+			neibs[i] = -1;
+		}
+		int ii = 0;
+		for(int i=0; i<ngridp; i++){
+			if(i==id)
+				continue;
+			for(int j=0; j<6; j++){
+				if(idneibs[j] == (int)(gpos[i].a[3])){
+					neibs[j] = i;
+					ii++;
+					break;
+				}
+			}
+			if(ii==6)
+				break;
+		}
+		bool gamcalc = (gam[id] > 1e-5);
+		while(!gamcalc){
+			float W[7],P[6];
+			W[0] = 0.0476190476;
+			W[1] = 0.2768260473;
+			W[2] = 0.4317453812;
+			W[3] = 0.4876190476;
+			W[4] = 0.4317453812;
+			W[5] = 0.2768260473;
+			W[6] = 0.0476190476;
+			P[1] =-0.8302238962;
+			P[2] =-0.4688487934;
+			P[3] = 0.0000000000;
+			P[4] = 0.4688487934;
+			P[5] = 0.8302238962;
+			for(int i=0; i<6; i++){
+				if(gam[neibs[i]] > 1e-5 && neibs[i] > -1){
+					uf4 rvec, mid;
+					float tggam[3];
+					int idn = neibs[i];
+					for(int j=0; j<3; j++){
+						rvec.a[j]  = (gpos[id].a[j]-gpos[idn].a[j])/2.;
+						mid.a[j]   = (gpos[id].a[j]+gpos[idn].a[j])/2.;
+						tggam[j] = 0.;
+					}
+					//end points
+					for(int j=0; j<maxlink; j++){
+						int end = 0;
+						if(ggam[id*maxlink*3+j*3] > -1e9){
+							for(int k=0; k<3; k++)
+								tggam[k] += ggam[id*maxlink*3+j*3+k];
+						}
+						else{
+							end++;
+						}
+						if(ggam[idn*maxlink*3+j*3] > -1e9){
+							for(int k=0; k<3; k++)
+								tggam[k] += ggam[idn*maxlink*3+j*3+k];
+						}
+						else{
+							end++;
+						}
+						if(end==2)
+							break;
+					}
+					gam[id] = gam[idn];
+					for(int j=0; j<3; j++)
+						gam[id] += W[0]*(tggam[j]*rvec.a[j]);
+					//interior points
+					for(int j=1; j<=5; j++){
+						uf4 tp;
+						for(int k=0; k<3; k++){
+							tp.a[k] = mid.a[k]+P[j]*rvec.a[k];
+							tggam[k] = 0.;
+						}
+
+						//calc ggam at tp
+						int nlink = calc_ggam(tp, pos, ep, surf, norm, gpos, tggam, iggam, dmin, dmax, per, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, iseed, false, 0);
+
+						for(int k=0; k<3; k++)
+							if(id==0)
+								deb[k+j*3] = tggam[k];
+						for(int k=0; k<3; k++)
+							gam[id] += W[j]*(tggam[k]*rvec.a[k]);
+					}
+					//end of gam calculation
+					gam[id] = fmax(1e-3f,fmin(1.f,gam[id]));
+					gamcalc = true;
+					break;
+				}
+			}
+		}
 		id+=blockDim.x*gridDim.x;
 	}
 
 //for some reason I have to use the atomicAdd function here. why?
-//	if(blockIdx.x==2){
-//		deb[blockIdx.x*blockDim.x + threadIdx.x] = nrggaml[i_c]; //nlink;
-//	}
 	atomicAdd(nrggam,nrggaml[i_c]);
 	/*__syncthreads();
 	int j = blockDim.x/2;

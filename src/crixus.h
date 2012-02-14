@@ -19,11 +19,11 @@ struct OutBuf{
 	int kpar, kfluid, kent, kparmob, iref, ep1, ep2, ep3;
 };
 struct gOutBuf{
-	float x, y, z, gam;
+	float x, y, z, gam, ggamx, ggamy, ggamz;
 	int id;
 };
 struct linkOutBuf{
-	int id;
+	int id, iggam;
 	float ggamx, ggamy, ggamz;
 };
 
