@@ -31,7 +31,7 @@ __global__ void calc_ngridp (uf4*, unsigned int*, uf4*, uf4*, bool*, int*, int, 
 
 __device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *ggam, int *iggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float iseed, bool ongpoint, int id);
 
-__global__ void init_gpoints (uf4*, ui4*, float*, uf4*, uf4*, float*, float*, int*, uf4*, uf4*, bool*, int, float, float, int, float, int, int, float, float, int*, Lock, float*);
+__global__ void init_gpoints (uf4*, ui4*, float*, uf4*, uf4*, float*, float*, int*, uf4*, uf4*, bool*, int, float, float, int, float, int, int, float, float, int*, Lock, float*, int *);
 
 __global__ void fill_fluid (uf4*, float, float, float, float, float, float, float, float, int*, int, Lock);
 
