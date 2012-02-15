@@ -486,12 +486,14 @@ int crixus_main(int argc, char** argv){
 	float *ggam , *ggam_d;   // grad gamma_{pb} of grid point
 	int   *iggam, *iggam_d;  // index of boundary element
 	int   nrggam, *nrggam_d; // number of links of all grid points
+	int   *ilock;            // lock while calculating gamma
 	gpos  = new uf4  [ngridp];
 	gam   = new float[ngridp];
 	ggam  = new float[ngridp*maxlink*3];
 	iggam = new int[ngridp*maxlink];
 	CUDA_SAFE_CALL( cudaMalloc((void **) &gpos_d  ,           ngridp*sizeof(uf4  )) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &gam_d   ,           ngridp*sizeof(float)) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &ilock   ,           ngridp*sizeof(int  )) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &ggam_d  , ngridp*maxlink*3*sizeof(float)) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &iggam_d ,   ngridp*maxlink*sizeof(int  )) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &nrggam_d,                  sizeof(int  )) );
@@ -515,17 +517,17 @@ int crixus_main(int argc, char** argv){
 	}
 	delete [] igrid;
 	nrggam = 0;
-	float *deb, *deb_d;
 	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos_d  , (void *)  gpos  , ngridp*sizeof(uf4), cudaMemcpyHostToDevice) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) nrggam_d, (void *) &nrggam,        sizeof(int), cudaMemcpyHostToDevice) );
 	numBlocks = (int) ceil((float)ngridp/(float)numThreads);
 	numBlocks = min(numBlocks,maxblock);
+	float *deb, *deb_d;
 	deb = new float[numBlocks*numThreads];
 	CUDA_SAFE_CALL( cudaMalloc((void **) &deb_d, numBlocks*numThreads*sizeof(float)) );
 	Lock lock_gpoints;
 	float seed = 0.5; //insert time here
 	
-	init_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, iggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d);
+	init_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, iggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d, ilock);
 
 	CUDA_SAFE_CALL( cudaMemcpy((void *) deb   , (void *) deb_d  ,           numBlocks*numThreads*sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos   , (void *) gpos_d  ,           ngridp*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
@@ -533,8 +535,8 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) ggam   , (void *) ggam_d  , ngridp*maxlink*3*sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) iggam  , (void *) iggam_d ,   ngridp*maxlink*sizeof(int  ), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) &nrggam, (void *) nrggam_d,                  sizeof(int  ), cudaMemcpyDeviceToHost) );
-	//for(int i=0; i<numBlocks*numThreads; i++) if(deb[i] < 0.5 && deb[i] > 0.000001) cout << deb[i] << endl;
-	for(int i=0; i<24; i+= 3)  cout << deb[i] << " " << deb[i+1] << " " << deb[i+2] << endl;
+	for(int i=0; i<numBlocks*numThreads; i++) if(deb[i] > 0.5) cout << i << " " <<  deb[i] << endl;
+//	for(int i=0; i<24; i+= 3)  cout << deb[i] << " " << deb[i+1] << " " << deb[i+2] << endl;
 
 	cudaFree(deb_d   );
 	cudaFree(gpos_d  );

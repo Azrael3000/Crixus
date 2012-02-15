@@ -505,7 +505,7 @@ __device__ float rand(float seed){
 
 __device__ inline float wendland_kernel(float q, float h){
 	const float alpha = 21./16./3.1415926;
-	return alpha/(sqr(sqr(h)))*sqr(sqr((1.-q/2.)))*(1.+2.*q);
+	return alpha/(h*sqr(h))*sqr(sqr((1.-q/2.)))*(1.+2.*q);
 }
 
 __device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *ggam, int *iggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float iseed, bool ongpoint, int id){
@@ -684,10 +684,11 @@ __device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf
 	return nlink;
 }
 
-__global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, int *iggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock, float *deb){
+__global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, int *iggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock, float *deb, int *ilock){
 	int id = blockIdx.x*blockDim.x+threadIdx.x;
 	int i_c = threadIdx.x;
 	deb[id] = 0.;
+	ilock[id] = 0.;
 	__shared__ int nrggaml[threadsPerBlock];
 	nrggaml[i_c] = 0;
 	int dim[3];
@@ -756,9 +757,11 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 			else{
 				gam[id] = 0.;
 			}
+			atomicExch(ilock+id,0);
 		}
 		else{
-			gam[id] = 0.;
+			gam[id] = -1.;
+			atomicExch(ilock+id,1);
 		}
 		id+=blockDim.x*gridDim.x;
 	}
@@ -772,6 +775,7 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 	//calculate the others using Lobato
 	id = blockIdx.x*blockDim.x+threadIdx.x;
 	while(id<ngridp){
+		int ij=0;
 		//find neighbouring grid points, don't look for diagonal ones, shouldn't be necessary
 		//there is the possibility of a very unlikely case that the higher id's need to be calculated first. so blocking here is not the ideal option but it should work
 		int neibs[6], idneibs[6];
@@ -807,7 +811,7 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 			if(ii==6)
 				break;
 		}
-		bool gamcalc = (gam[id] > 1e-5);
+		bool gamcalc = (gam[id] > -0.5);
 		while(!gamcalc){
 			float W[7],P[6];
 			W[0] = 0.0476190476;
@@ -823,7 +827,12 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 			P[4] = 0.4688487934;
 			P[5] = 0.8302238962;
 			for(int i=0; i<6; i++){
-				if(gam[neibs[i]] > 1e-5 && neibs[i] > -1){
+				if(neibs[i] < 0)
+					continue;
+				int locked = 1;
+				locked = atomicAnd(ilock + (neibs[i]), locked);
+				if(locked == 0 && gam[neibs[i]] > 1e-9 ){
+					atomicExch(ilock+(id),1);
 					uf4 rvec, mid;
 					float tggam[3];
 					int idn = neibs[i];
@@ -852,9 +861,10 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 						if(end==2)
 							break;
 					}
-					gam[id] = gam[idn];
+					float tgam;
+					tgam = gam[idn];
 					for(int j=0; j<3; j++)
-						gam[id] += W[0]*(tggam[j]*rvec.a[j]);
+						tgam += W[0]*(tggam[j]*rvec.a[j]);
 					//interior points
 					for(int j=1; j<=5; j++){
 						uf4 tp;
@@ -867,15 +877,32 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 						int nlink = calc_ggam(tp, pos, ep, surf, norm, gpos, tggam, iggam, dmin, dmax, per, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, iseed, false, 0);
 
 						for(int k=0; k<3; k++)
-							if(id==0)
-								deb[k+j*3] = tggam[k];
-						for(int k=0; k<3; k++)
-							gam[id] += W[j]*(tggam[k]*rvec.a[k]);
+							tgam += W[j]*(tggam[k]*rvec.a[k]);
 					}
 					//end of gam calculation
-					gam[id] = fmax(1e-3f,fmin(1.f,gam[id]));
-					gamcalc = true;
-					break;
+					tgam = fmin(1.f,tgam);
+					/*if(id==6733){
+						deb[0] = idn;
+						deb[1] = gam[idn];
+						deb[2] = gam[id];
+						deb[3] = (float) ilock[idn];
+						deb[4] = (float) ilock[id];
+						deb[5] = tgam;
+						for(int k=0; k<3; k++){
+							deb[6+k] = tggam[k];
+						}
+					}*/
+					if(tgam > 1e-8 || ij > 200){
+						if(ij > 200)
+							tgam = fmax(1e-8f, tgam);
+						deb[id] = ij;
+						gam[id] = tgam;
+						gamcalc = true;
+						if(gam[id]>0.)
+							atomicExch((ilock+id),0);
+						break;
+					}
+					ij++; // not sure why ij is necessary but it certainly works
 				}
 			}
 		}
