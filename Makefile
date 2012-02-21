@@ -5,7 +5,7 @@ OSUPPER = $(shell uname -s 2>/dev/null | tr [:lower:] [:upper:])
 OSLOWER = $(shell uname -s 2>/dev/null | tr [:upper:] [:lower:]) 
 HNAME = $(shell hostname)
  
-dbg = 1
+dbg = 0
 SMVERSION = 11
 
 ifeq ($(HNAME),$(shell echo cuda-sv)) #dirty but works

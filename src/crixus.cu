@@ -61,6 +61,7 @@ int crixus_main(int argc, char** argv){
 	//looking for cuda devices without timeout
 	cout << "Selecting GPU ...";
 	int dcount, maxblock, maxthread;
+	size_t globMemSize;
 	maxthread = threadsPerBlock;
 	bool found = false;
 	CUDA_SAFE_CALL( cudaGetDeviceCount(&dcount) );
@@ -72,6 +73,7 @@ int crixus_main(int argc, char** argv){
 			CUDA_SAFE_CALL( cudaSetDevice(i) );
 			maxthread = prop.maxThreadsPerBlock;
 			maxblock  = prop.maxGridSize[0];
+			globMemSize = prop.totalGlobalMem;
 			cout << " Id: " << i << " (" << maxthread << ", " << maxblock << ") ...";
 			if(maxthread < threadsPerBlock){
 				cout << " [FAILED]" << endl;
@@ -305,13 +307,14 @@ int crixus_main(int argc, char** argv){
 	uf4 dmin = {xmin,ymin,zmin,0.};
 	uf4 dmax = {xmax,ymax,zmax,0.};
 	bool per[3] = {false, false, false};
-	int *newlink;
+	int *newlink, *newlink_h;
 	uf4 *dmin_d, *dmax_d;
+	newlink_h = new int[nvert];
 	CUDA_SAFE_CALL( cudaMalloc((void **) &newlink, nvert*sizeof(float)) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &dmin_d ,       sizeof(uf4  )) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &dmax_d ,       sizeof(uf4  )) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d, (void *) &dmin, sizeof(float4), cudaMemcpyHostToDevice) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d, (void *) &dmax, sizeof(float4), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d , (void *) &dmin    ,       sizeof(float4), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d , (void *) &dmax    ,       sizeof(float4), cudaMemcpyHostToDevice) );
 	for(unsigned int idim=0; idim<3; idim++){
 		cont='n';
 		do{
@@ -329,6 +332,9 @@ int crixus_main(int argc, char** argv){
 		if(cont=='y'){
 			per[idim] = true;
 			cout << "Updating links ...";
+	for(int i=0; i<nvert; i++)
+		newlink_h[i] = -1;
+	CUDA_SAFE_CALL( cudaMemcpy((void *) newlink, (void *) newlink_h, nvert*sizeof(int)   , cudaMemcpyHostToDevice) );
 			numBlocks = (int) ceil((float)max(nvert,nbe)/(float)numThreads);
 			numBlocks = min(numBlocks,maxblock);
       //initialize gpu sync, why can this not be done in an external function?
@@ -340,11 +346,12 @@ int crixus_main(int argc, char** argv){
 	    CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(int), cudaMemcpyHostToDevice) );
       delete [] sync_i;
 
+			find_links <<<numBlocks, numThreads>>> (pos_d, nvert, dmax_d, dmin_d, dr, newlink, idim);
 			Lock lock_per;
 			periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, dmax_d, dmin_d, dr, sync_id, sync_od, newlink, idim, lock_per);
 
 			CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d, (nvert+nbe)*sizeof(uf4), cudaMemcpyDeviceToHost) );
-			CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d ,         nbe*sizeof(ui4), cudaMemcpyHostToDevice) );
+			CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d ,         nbe*sizeof(ui4), cudaMemcpyDeviceToHost) );
 	    cudaFree( sync_id );
 	    cudaFree( sync_od );
 			//if(err!=0) return err;
@@ -356,13 +363,17 @@ int crixus_main(int argc, char** argv){
 
 	cout << "\nCalculating volume of vertex particles ...";
 	float eps=dr/(float)gres*1e-4;
-	int *trisize;
+	int *trisize, *trisize_h;
 	float *vol_d;
   bool *per_d;
+	trisize_h = new int[nvert];
+	for(int i=0; i<nvert; i++)
+		trisize_h[i] = 0;
 	CUDA_SAFE_CALL( cudaMalloc((void **) &trisize, nvert*sizeof(int  )) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &vol_d  , nvert*sizeof(float)) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &per_d  ,     3*sizeof(bool )) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) per_d, (void *) per, 3*sizeof(bool), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) per_d  , (void *) per      ,     3*sizeof(bool), cudaMemcpyHostToDevice) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) trisize, (void *) trisize_h, nvert*sizeof(int) , cudaMemcpyHostToDevice) );
 	numBlocks = (int) ceil((float)nvert/(float)numThreads);
 	numBlocks = min(numBlocks,maxblock);
   //initialize gpu sync, why can this not be done in an external function?
@@ -374,6 +385,7 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(int), cudaMemcpyHostToDevice) );
   delete [] sync_i;
 
+	calc_trisize <<<numBlocks, numThreads>>> (ep_d, trisize, nbe);
 	Lock lock_vert;
 #ifndef bdebug
 	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, sync_id, sync_od, nvert, nbe, dr, eps, per_d, lock_vert);
@@ -385,10 +397,12 @@ int crixus_main(int argc, char** argv){
 	debug = new uf4[debugs];
 	CUDA_SAFE_CALL( cudaMalloc((void **) &debug_d, debugs*sizeof(uf4)) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &debugp_d, 100*sizeof(float)) );
+
 	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, sync_id, sync_od, nvert, nbe, dr, eps, per_d, lock_vert, debug_d, debugp_d);
+
 	CUDA_SAFE_CALL( cudaMemcpy((void*) debug, (void*) debug_d, debugs*sizeof(uf4), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void*) debugp, (void*) debugp_d, 100*sizeof(float), cudaMemcpyDeviceToHost) );
-	for(int i=0; i<100; i++){
+	for(int i=0; i<20; i++){
 		cout << i << " " << debugp[i] << endl;
 	}
 #endif
@@ -446,6 +460,7 @@ int crixus_main(int argc, char** argv){
 		krad = 2*hdr*dr;
 	}
 	
+	/*
 	//getting number of gridpoints
 	cout << "\nCalculating number of grid points ...";
 	int *ngridp_d;
@@ -535,7 +550,7 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) ggam   , (void *) ggam_d  , ngridp*maxlink*3*sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) iggam  , (void *) iggam_d ,   ngridp*maxlink*sizeof(int  ), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) &nrggam, (void *) nrggam_d,                  sizeof(int  ), cudaMemcpyDeviceToHost) );
-	for(int i=0; i<numBlocks*numThreads; i++) if(deb[i] > 0.5) cout << i << " " <<  deb[i] << endl;
+//	for(int i=0; i<numBlocks*numThreads; i++) if(deb[i] > 0.5) cout << i << " " <<  deb[i] << endl;
 //	for(int i=0; i<24; i+= 3)  cout << deb[i] << " " << deb[i+1] << " " << deb[i+2] << endl;
 
 	cudaFree(deb_d   );
@@ -543,7 +558,12 @@ int crixus_main(int argc, char** argv){
 	cudaFree(ggam_d  );
 	cudaFree(iggam_d );
 	cudaFree(nrggam_d);
-	cout << " [OK]" << endl;
+	cout << " [OK]" << endl; */
+	cudaFree(norm_d  );
+	cudaFree(pos_d   );
+	cudaFree(vol_d   );
+	cudaFree(surf_d  );
+	cudaFree(ep_d    );
 
 	//setting up fluid particles
 	cout << "\nDefining fluid particles in a box ..." << endl;
@@ -552,7 +572,7 @@ int crixus_main(int argc, char** argv){
 	unsigned int nfluid = 0;
 	unsigned int *nfluid_in_box;
 	unsigned int nfbox = 0;
-	unsigned int maxf = 0;
+	unsigned int maxf = 0, maxfn;
 	uf4 **fpos;
 	fpos = new uf4*[maxfbox];
 	nfluid_in_box = new unsigned int[maxfbox];
@@ -575,25 +595,42 @@ int crixus_main(int argc, char** argv){
 			cout << "Fluid particle definition ... [FAILED]" << endl;
 			return FLUID_NDEF;
 		}
-		maxf = (floor((xmax+eps-xmin)/dr)+1)*(floor((ymax+eps-ymin)/dr)+1)*(floor((zmax+eps-zmin)/dr)+1);
-		fpos[nfbox] = new uf4[maxf];
-		uf4 *fpos_d;
-		int nfib;
-		nfib = 0;
-		CUDA_SAFE_CALL( cudaMalloc((void **) &fpos_d, maxf*sizeof(uf4)) );
-		CUDA_SAFE_CALL( cudaMemcpy((void *) nfib_d, (void *) &nfib, sizeof(int), cudaMemcpyHostToDevice) );
-		numBlocks = (int) ceil((float)maxf/(float)numThreads);
-		numBlocks = min(numBlocks,maxblock);
+		maxfn = (floor((xmax+eps-xmin)/dr)+1)*(floor((ymax+eps-ymin)/dr)+1)*(floor((zmax+eps-zmin)/dr)+1);
+		size_t memReq = (size_t)maxfn*sizeof(uf4);
+		int it = (int)ceil((float)memReq/0.6/(float)globMemSize); // use at most 90% of the memory
+		if(nfbox + it >= maxfbox){
+			cout << "Too many fluid boxes " << nfbox << " " << it << endl;
+			break;
+		}
+		int ixpos = 0;
+		int nxplane = (floor((xmax+eps-xmin)/dr)+1);
+		for(int i=0; i<it; i++){
+			//1D domain decomposition
+			int ixplane = nxplane/it + ((i<nxplane%it)?1:0);
+			cout << nxplane << " " << nxplane/it << " " << ixplane << endl;
+			maxf = ixplane*(floor((ymax+eps-ymin)/dr)+1)*(floor((zmax+eps-zmin)/dr)+1);
+			float xmin_l = xmin + (float)ixpos*dr;
+			ixpos += ixplane;
+			float xmax_l = xmin + (float)(ixpos-1)*dr;
+			fpos[nfbox] = new uf4[maxf];
+			uf4 *fpos_d;
+			int nfib;
+			nfib = 0;
+			CUDA_SAFE_CALL( cudaMalloc((void **) &fpos_d, maxf*sizeof(uf4)) );
+			CUDA_SAFE_CALL( cudaMemcpy((void *) nfib_d, (void *) &nfib, sizeof(int), cudaMemcpyHostToDevice) );
+			numBlocks = (int) ceil((float)maxf/(float)numThreads);
+			numBlocks = min(numBlocks,maxblock);
 
-		Lock lock_f;
-		fill_fluid<<<numBlocks, numThreads>>> (fpos_d, xmin, xmax, ymin, ymax, zmin, zmax, eps, dr, nfib_d, maxf, lock_f);
-		
-		CUDA_SAFE_CALL( cudaMemcpy((void *) fpos[nfbox], (void *) fpos_d, maxf*sizeof(uf4), cudaMemcpyDeviceToHost) );
-		CUDA_SAFE_CALL( cudaMemcpy((void *) &nfib      , (void *) nfib_d,      sizeof(int), cudaMemcpyDeviceToHost) );
-		cudaFree( fpos_d );
-		nfluid_in_box[nfbox] = nfib;
-		nfluid += nfib;
-		nfbox += 1;
+			Lock lock_f;
+			fill_fluid<<<numBlocks, numThreads>>> (fpos_d, xmin_l, xmax_l, ymin, ymax, zmin, zmax, eps, dr, nfib_d, maxf, lock_f);
+			
+			CUDA_SAFE_CALL( cudaMemcpy((void *) fpos[nfbox], (void *) fpos_d, maxf*sizeof(uf4), cudaMemcpyDeviceToHost) );
+			CUDA_SAFE_CALL( cudaMemcpy((void *) &nfib      , (void *) nfib_d,      sizeof(int), cudaMemcpyDeviceToHost) );
+			cudaFree( fpos_d );
+			nfluid_in_box[nfbox] = nfib;
+			nfluid += nfib;
+			nfbox += 1;
+		}
 
 		cont = 'n';
 		if(nfbox == maxfbox)
@@ -644,8 +681,10 @@ int crixus_main(int argc, char** argv){
 	}
 	//vertex particles
 	for(unsigned int i=0; i<nvert; i++){
-		if(posa[i].a[0] < -1e9)
+		if(posa[i].a[0] < -1e9){
+			nelem--;
 			continue;
+		}
 		buf[k].x = posa[i].a[0];
 		buf[k].y = posa[i].a[1];
 		buf[k].z = posa[i].a[2];
@@ -726,6 +765,7 @@ int crixus_main(int argc, char** argv){
 		return WRITE_FAIL;
 	}
 
+	/*
 	//Preparing output of gridpoints
 	cout << "Creating and initializing of output buffer of grid points ...";
 	gOutBuf *gbuf;
@@ -809,6 +849,7 @@ int crixus_main(int argc, char** argv){
 		cout << " [FAILED]" << endl;
 		return WRITE_FAIL;
 	}
+	*/
 
 	//Free memory
 	//Arrays
@@ -823,15 +864,12 @@ int crixus_main(int argc, char** argv){
 	for(unsigned int i=0; i<nfbox; i++)
 		delete [] fpos[i];
 	delete [] fpos;
+	/*
 	delete [] ggam;
 	delete [] iggam;
 	delete [] gpos;
+	*/
 	//Cuda
-	cudaFree( norm_d  );
-	cudaFree( pos_d   );
-	cudaFree( vol_d   );
-	cudaFree( surf_d  );
-	cudaFree( ep_d    );
 	cudaFree( per_d   );
 	cudaFree( dmin_d  );
 	cudaFree( dmax_d  );
