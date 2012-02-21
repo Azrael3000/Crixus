@@ -127,61 +127,10 @@ __global__ void find_links(uf4 *pos, int nvert, uf4 *dmax, uf4 *dmin, float dr, 
 }
 
 //__device__ volatile int lock_per_mutex[2]={0,0};
-__global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *dmax, uf4 *dmin, float dr, int *sync_i, int *sync_o, int *newlink, int idim, Lock lock)
+__global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *dmax, uf4 *dmin, float dr, int *newlink, int idim)
 {
 	//find corresponding vertices
 	unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
-
-	/*
-	//now on host
-	int i_c = threadIdx.x;
-	while(i<nvert){
-		newlink[i] = -1;
-		i += blockDim.x*gridDim.x;
-	}
-
-//	gpu_sync(sync_i, sync_o);
-	//doesn't work if block number is too big due to hardware restrictions
-	//thus this function is split into several
-	if(i_c==0){
-		atomicAdd((int *) &lock_per_mutex,1);
-		while(lock_per_mutex[0]!=gridDim.x)
-			;
-	}
-	__syncthreads();
-
-	//now in find_links
-	i = blockIdx.x*blockDim.x+threadIdx.x;
-	while(i<nvert){
-		if(fabs(pos[i].a[idim]-(*dmax).a[idim])<1e-5*dr){
-			for(unsigned int j=0; j<nvert; j++){
-				if(j==i) continue;
-				if(sqrt(pow(pos[i].a[(idim+1)%3]-pos[j].a[(idim+1)%3],(float)2.)+ \
-				        pow(pos[i].a[(idim+2)%3]-pos[j].a[(idim+2)%3],(float)2.)+ \
-								pow(pos[j].a[idim      ]- (*dmin).a[idim]      ,(float)2.) ) < 1e-4*dr){
-					newlink[i] = j;
-					//"delete" vertex
-					for(int k=0; k<3; k++)
-						pos[i].a[k] = -1e10;
-					break;
-				}
-				if(j==nvert-1){
-					// cout << " [FAILED]" << endl;
-					return; //NO_PER_VERT;
-				}
-			}
-		}
-		i += blockDim.x*gridDim.x;
-	}
-
-//	gpu_sync(sync_i, sync_o);
-	if(i_c==0){
-		atomicAdd((int *) &lock_per_mutex+1,1);
-		while(lock_per_mutex[1]!=gridDim.x)
-			;
-	}
-	__syncthreads();
-	*/
 
 	//relink
 	i = blockIdx.x*blockDim.x+threadIdx.x;
@@ -209,47 +158,12 @@ __global__ void calc_trisize(ui4 *ep, int *trisize, int nbe)
 
 //__device__ volatile int lock_mutex[2];
 #ifndef bdebug
-__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int *sync_i, int *sync_o, int nvert, int nbe, float dr, float eps, bool *per, Lock lock)
+__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int nvert, int nbe, float dr, float eps, bool *per)
 #else
-__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int *sync_i, int *sync_o, int nvert, int nbe, float dr, float eps, bool *per, Lock lock, uf4 *debug, float* debugp)
+__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int nvert, int nbe, float dr, float eps, bool *per, uf4 *debug, float* debugp)
 #endif
 {
 	int i = blockIdx.x*blockDim.x+threadIdx.x;
-	/*
-	//get neighbouring vertices
-	//on host
-	int i_c = threadIdx.x;
-	if(i==0) lock_mutex[0] = 0;
-	if(i==0) lock_mutex[1] = 0;
-	while(i<nvert){
-		trisize[i] = 0;
-		i += blockDim.x*gridDim.x;
-	}
-
-//	gpu_sync(sync_i, sync_o);
-	if(i_c==0){
-		atomicAdd((int *) &lock_mutex,1);
-		while(lock_mutex[0] != gridDim.x)
-			;
-	}
-	__syncthreads();
-
-	i = blockIdx.x*blockDim.x+threadIdx.x;
-	while(i<nbe){
-		for(unsigned int j=0; j<3; j++){
-			atomicAdd(&trisize[ep[i].a[j]],1);
-		}
-		i += blockDim.x*gridDim.x;
-	}
-
-//	gpu_sync(sync_i, sync_o);
-	if(i_c==0){
-		atomicAdd((int *) &lock_mutex+1,1);
-		while(lock_mutex[1] != gridDim.x)
-			;
-	}
-	__syncthreads();
-	*/
 
 	//sort neighbouring vertices
 	//calculate volume (geometry factor)
@@ -826,6 +740,7 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 		id+=blockDim.x*gridDim.x;
 	}
 
+	//am-todo exit loop here
 	if(i_c==0){
 		lock.lock();
 		lock.unlock();
@@ -1027,48 +942,6 @@ __global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float
 		*nfib += nfib_cache[0];
 		lock.unlock();
 	}
-}
-
-//Implemented according to: Inter-Block GPU Communication via Fast Barrier Synchronization, Shucai Xiao and Wu-chun Feng, Department of Computer Science, Virginia Tech, 2009
-//The original implementation doesn't work. For now lock is used.
-__device__ void gpu_sync (int *sync_i, int *sync_o)
-{
-	int tid_in_block = threadIdx.x;
-	int bid = blockIdx.x;
-	int nblock = gridDim.x;
-
-	//sync thread 0 in all blocks
-	if(tid_in_block == 0){
-		sync_i[bid] = 1;
-		sync_o[bid] = 0;
-	}
-	
-	if(bid == 0){
-		int i = tid_in_block;
-		while (i<nblock) {
-			while(sync_i[i] != 1)
-				;
-			i += blockDim.x;
-		}
-		__syncthreads();
-
-		i = tid_in_block;
-		while (i<nblock) {
-			sync_o[i] = 1;
-			sync_i[i] = 0;
-			i += blockDim.x;
-		}
-	}
-
-//this last part causes an infinite loop, why?
-	//sync block
-	if(tid_in_block == 0 && bid == 1){
-		while (sync_o[bid] != 1)
-      			;
-	}
-
-	__syncthreads();
-
 }
 
 #endif

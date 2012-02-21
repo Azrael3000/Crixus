@@ -21,14 +21,14 @@ __global__ void swap_normals (uf4*, int);
 
 __global__ void find_links(uf4 *pos, int nvert, uf4 *dmax, uf4 *dmin, float dr, int *newlink, int idim);
 
-__global__ void periodicity_links (uf4*, ui4*, int, int, uf4*, uf4*, float, int*, int*, int*, int, Lock);
+__global__ void periodicity_links (uf4*, ui4*, int, int, uf4*, uf4*, float, int*, int);
 
 __global__ void calc_trisize(ui4 *ep, int *trisize, int nbe);
 
 #ifndef bdebug
-__global__ void calc_vert_volume (uf4*, uf4*, ui4*, float*, int*, uf4*, uf4*, int*, int*, int, int, float, float, bool*, Lock);
+__global__ void calc_vert_volume (uf4*, uf4*, ui4*, float*, int*, uf4*, uf4*,  int, int, float, float, bool*);
 #else
-__global__ void calc_vert_volume (uf4*, uf4*, ui4*, float*, int*, uf4*, uf4*, int*, int*, int, int, float, float, bool*, Lock, uf4*, float*);
+__global__ void calc_vert_volume (uf4*, uf4*, ui4*, float*, int*, uf4*, uf4*,  int, int, float, float, bool*, uf4*, float*);
 #endif
 
 __global__ void calc_ngridp (uf4*, unsigned int*, uf4*, uf4*, bool*, int*, int, float, float, int, int, float, Lock, int);
