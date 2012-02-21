@@ -301,8 +301,6 @@ int crixus_main(int argc, char** argv){
 	}
 	cout << endl;
 
-	int *sync_id, *sync_od;
-
 	//calculate volume of vertex particles
 	uf4 dmin = {xmin,ymin,zmin,0.};
 	uf4 dmax = {xmax,ymax,zmax,0.};
@@ -337,23 +335,12 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) newlink, (void *) newlink_h, nvert*sizeof(int)   , cudaMemcpyHostToDevice) );
 			numBlocks = (int) ceil((float)max(nvert,nbe)/(float)numThreads);
 			numBlocks = min(numBlocks,maxblock);
-      //initialize gpu sync, why can this not be done in an external function?
-	    int *sync_i;
-	    sync_i = new int[numBlocks];
-	    for(int i=0; i<numBlocks; i++) sync_i[i] = 0;
-	    CUDA_SAFE_CALL( cudaMalloc((void **) &sync_id, numBlocks*sizeof(int)) );
-	    CUDA_SAFE_CALL( cudaMalloc((void **) &sync_od, numBlocks*sizeof(int)) );
-	    CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(int), cudaMemcpyHostToDevice) );
-      delete [] sync_i;
 
 			find_links <<<numBlocks, numThreads>>> (pos_d, nvert, dmax_d, dmin_d, dr, newlink, idim);
-			Lock lock_per;
-			periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, dmax_d, dmin_d, dr, sync_id, sync_od, newlink, idim, lock_per);
+			periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, dmax_d, dmin_d, dr, newlink, idim);
 
 			CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d, (nvert+nbe)*sizeof(uf4), cudaMemcpyDeviceToHost) );
 			CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d ,         nbe*sizeof(ui4), cudaMemcpyDeviceToHost) );
-	    cudaFree( sync_id );
-	    cudaFree( sync_od );
 			//if(err!=0) return err;
 			//host
 			cout << " [OK]" << endl;
@@ -376,19 +363,10 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) trisize, (void *) trisize_h, nvert*sizeof(int) , cudaMemcpyHostToDevice) );
 	numBlocks = (int) ceil((float)nvert/(float)numThreads);
 	numBlocks = min(numBlocks,maxblock);
-  //initialize gpu sync, why can this not be done in an external function?
-	int *sync_i;
-	sync_i = new int[numBlocks];
-	for(int i=0; i<numBlocks; i++) sync_i[i] = 0;
-	CUDA_SAFE_CALL( cudaMalloc((void **) &sync_id, numBlocks*sizeof(int)) );
-	CUDA_SAFE_CALL( cudaMalloc((void **) &sync_od, numBlocks*sizeof(int)) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) sync_id, (void *) sync_i, numBlocks*sizeof(int), cudaMemcpyHostToDevice) );
-  delete [] sync_i;
 
 	calc_trisize <<<numBlocks, numThreads>>> (ep_d, trisize, nbe);
-	Lock lock_vert;
 #ifndef bdebug
-	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, sync_id, sync_od, nvert, nbe, dr, eps, per_d, lock_vert);
+	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, nvert, nbe, dr, eps, per_d);
 #else
 	uf4 *debug, *debug_d;
 	int debugs = pow((gres*2+1),3);
@@ -398,7 +376,7 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMalloc((void **) &debug_d, debugs*sizeof(uf4)) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &debugp_d, 100*sizeof(float)) );
 
-	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, sync_id, sync_od, nvert, nbe, dr, eps, per_d, lock_vert, debug_d, debugp_d);
+	calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, nvert, nbe, dr, eps, per_d, debug_d, debugp_d);
 
 	CUDA_SAFE_CALL( cudaMemcpy((void*) debug, (void*) debug_d, debugs*sizeof(uf4), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void*) debugp, (void*) debugp_d, 100*sizeof(float), cudaMemcpyDeviceToHost) );
@@ -408,8 +386,6 @@ int crixus_main(int argc, char** argv){
 #endif
 
 	CUDA_SAFE_CALL( cudaMemcpy((void *) vola,(void *) vol_d, nvert*sizeof(float), cudaMemcpyDeviceToHost) );
-	cudaFree( sync_id );
-	cudaFree( sync_od );
 	cudaFree( trisize );
 	cudaFree( vol_d   );
 
@@ -597,7 +573,7 @@ int crixus_main(int argc, char** argv){
 		}
 		maxfn = (floor((xmax+eps-xmin)/dr)+1)*(floor((ymax+eps-ymin)/dr)+1)*(floor((zmax+eps-zmin)/dr)+1);
 		size_t memReq = (size_t)maxfn*sizeof(uf4);
-		int it = (int)ceil((float)memReq/0.6/(float)globMemSize); // use at most 90% of the memory
+		int it = (int)ceil((float)memReq/0.6/(float)globMemSize); // use at most 60% of the memory
 		if(nfbox + it >= maxfbox){
 			cout << "Too many fluid boxes " << nfbox << " " << it << endl;
 			break;
@@ -607,7 +583,6 @@ int crixus_main(int argc, char** argv){
 		for(int i=0; i<it; i++){
 			//1D domain decomposition
 			int ixplane = nxplane/it + ((i<nxplane%it)?1:0);
-			cout << nxplane << " " << nxplane/it << " " << ixplane << endl;
 			maxf = ixplane*(floor((ymax+eps-ymin)/dr)+1)*(floor((zmax+eps-zmin)/dr)+1);
 			float xmin_l = xmin + (float)ixpos*dr;
 			ixpos += ixplane;
