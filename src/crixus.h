@@ -8,10 +8,10 @@
 
 //variables
 const unsigned int maxfbox = 100;// maximum number of fluid boxes
-const unsigned int gres    = 10; // grid resolution = dr/dr_grid
+const unsigned int gres    = 100; // grid resolution = dr/dr_grid
 const unsigned int trimax  = 100;// maximum amount of triangles associated to one vertex particle
 const unsigned int maxlink = 500;// maximum number of links (grid points to boundary elements & vertex particles
-const unsigned int ipoints = 10000; // number of monte carlo integration points
+const unsigned int ipoints = 100; // number of monte carlo integration points
 
 //Output structures
 struct OutBuf{
@@ -37,6 +37,6 @@ int hdf5_link_output (linkOutBuf *buf, int len, const char *filename, float *tim
 int crixus_main(int, char**);
 
 //debug
-//#define bdebug 232
+//#define bdebug 1
 
 #endif

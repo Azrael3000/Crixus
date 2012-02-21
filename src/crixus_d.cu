@@ -100,23 +100,57 @@ __global__ void swap_normals (uf4 *norm, int nbe)
 	}
 }
 
+__global__ void find_links(uf4 *pos, int nvert, uf4 *dmax, uf4 *dmin, float dr, int *newlink, int idim)
+{
+	int i = blockIdx.x*blockDim.x+threadIdx.x;
+	while(i<nvert){
+		if(fabs(pos[i].a[idim]-(*dmax).a[idim])<1e-5*dr){
+			for(unsigned int j=0; j<nvert; j++){
+				if(j==i) continue;
+				if(sqrt(pow(pos[i].a[(idim+1)%3]-pos[j].a[(idim+1)%3],(float)2.)+ \
+				        pow(pos[i].a[(idim+2)%3]-pos[j].a[(idim+2)%3],(float)2.)+ \
+								pow(pos[j].a[idim      ]- (*dmin).a[idim]      ,(float)2.) ) < 1e-4*dr){
+					newlink[i] = j;
+					//"delete" vertex
+					for(int k=0; k<3; k++)
+						pos[i].a[k] = -1e10;
+					break;
+				}
+				if(j==nvert-1){
+					// cout << " [FAILED]" << endl;
+					return; //NO_PER_VERT;
+				}
+			}
+		}
+		i += blockDim.x*gridDim.x;
+	}
+}
+
+//__device__ volatile int lock_per_mutex[2]={0,0};
 __global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *dmax, uf4 *dmin, float dr, int *sync_i, int *sync_o, int *newlink, int idim, Lock lock)
 {
 	//find corresponding vertices
 	unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
-	unsigned int i_c = threadIdx.x;
+
+	/*
+	//now on host
+	int i_c = threadIdx.x;
 	while(i<nvert){
-		newlink[i] = 0;
+		newlink[i] = -1;
 		i += blockDim.x*gridDim.x;
 	}
 
 //	gpu_sync(sync_i, sync_o);
+	//doesn't work if block number is too big due to hardware restrictions
+	//thus this function is split into several
 	if(i_c==0){
-		lock.lock();
-		lock.unlock();
+		atomicAdd((int *) &lock_per_mutex,1);
+		while(lock_per_mutex[0]!=gridDim.x)
+			;
 	}
 	__syncthreads();
 
+	//now in find_links
 	i = blockIdx.x*blockDim.x+threadIdx.x;
 	while(i<nvert){
 		if(fabs(pos[i].a[idim]-(*dmax).a[idim])<1e-5*dr){
@@ -142,10 +176,12 @@ __global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *d
 
 //	gpu_sync(sync_i, sync_o);
 	if(i_c==0){
-		lock.lock();
-		lock.unlock();
+		atomicAdd((int *) &lock_per_mutex+1,1);
+		while(lock_per_mutex[1]!=gridDim.x)
+			;
 	}
 	__syncthreads();
+	*/
 
 	//relink
 	i = blockIdx.x*blockDim.x+threadIdx.x;
@@ -160,15 +196,31 @@ __global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *d
 	return;
 }
 
+__global__ void calc_trisize(ui4 *ep, int *trisize, int nbe)
+{
+	int i = blockIdx.x*blockDim.x+threadIdx.x;
+	while(i<nbe){
+		for(unsigned int j=0; j<3; j++){
+			atomicAdd(&trisize[ep[i].a[j]],1);
+		}
+		i += blockDim.x*gridDim.x;
+	}
+}
+
+//__device__ volatile int lock_mutex[2];
 #ifndef bdebug
 __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int *sync_i, int *sync_o, int nvert, int nbe, float dr, float eps, bool *per, Lock lock)
 #else
 __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int *sync_i, int *sync_o, int nvert, int nbe, float dr, float eps, bool *per, Lock lock, uf4 *debug, float* debugp)
 #endif
 {
-	//get neighbouring vertices
 	int i = blockIdx.x*blockDim.x+threadIdx.x;
+	/*
+	//get neighbouring vertices
+	//on host
 	int i_c = threadIdx.x;
+	if(i==0) lock_mutex[0] = 0;
+	if(i==0) lock_mutex[1] = 0;
 	while(i<nvert){
 		trisize[i] = 0;
 		i += blockDim.x*gridDim.x;
@@ -176,8 +228,9 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 
 //	gpu_sync(sync_i, sync_o);
 	if(i_c==0){
-		lock.lock();
-		lock.unlock();
+		atomicAdd((int *) &lock_mutex,1);
+		while(lock_mutex[0] != gridDim.x)
+			;
 	}
 	__syncthreads();
 
@@ -191,10 +244,12 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 
 //	gpu_sync(sync_i, sync_o);
 	if(i_c==0){
-		lock.lock();
-		lock.unlock();
+		atomicAdd((int *) &lock_mutex+1,1);
+		while(lock_mutex[1] != gridDim.x)
+			;
 	}
 	__syncthreads();
+	*/
 
 	//sort neighbouring vertices
 	//calculate volume (geometry factor)
@@ -273,6 +328,13 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 			closed = false;
 		}
 
+#ifdef bdebug
+			if(i==bdebug){
+				for(int j=0; j<100; j++) debugp[j] = 0.;
+				debugp[0] = tris;
+			}
+#endif
+
 		//start big loop over all numerical integration points
 		for(unsigned int k=0; k<gsize; k++){
 		for(unsigned int l=0; l<gsize; l++){
@@ -288,9 +350,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 			if(i==bdebug){
 			for(int j=0; j<3; j++) debug[k+l*gsize+m*gsize*gsize].a[j] = gp[j] + pos[i].a[j];
 			debug[k+l*gsize+m*gsize*gsize].a[3] = -1.;
-			for(int j=0; j<100; j++) debugp[j] = 0.;
 			}
-			if(i==bdebug) debugp[0] = tris;
 #endif
 
 			//create cubes
