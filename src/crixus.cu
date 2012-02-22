@@ -436,7 +436,6 @@ int crixus_main(int argc, char** argv){
 		krad = 2*hdr*dr;
 	}
 	
-	/*
 	//getting number of gridpoints
 	cout << "\nCalculating number of grid points ...";
 	int *ngridp_d;
@@ -516,9 +515,14 @@ int crixus_main(int argc, char** argv){
 	deb = new float[numBlocks*numThreads];
 	CUDA_SAFE_CALL( cudaMalloc((void **) &deb_d, numBlocks*numThreads*sizeof(float)) );
 	Lock lock_gpoints;
-	float seed = 0.5; //insert time here
+	time_t sec;
+	sec = time(NULL);
+	float seed = (float)((int)sec%3571)/3571.;
 	
 	init_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, iggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d, ilock);
+
+	seed = (seed >= 0.8 ? seed - 0.8 : seed + 0.2); //insert time here
+	lobato_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, iggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d, ilock);
 
 	CUDA_SAFE_CALL( cudaMemcpy((void *) deb   , (void *) deb_d  ,           numBlocks*numThreads*sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos   , (void *) gpos_d  ,           ngridp*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
@@ -534,7 +538,7 @@ int crixus_main(int argc, char** argv){
 	cudaFree(ggam_d  );
 	cudaFree(iggam_d );
 	cudaFree(nrggam_d);
-	cout << " [OK]" << endl; */
+	cout << " [OK]" << endl;
 	cudaFree(norm_d  );
 	cudaFree(pos_d   );
 	cudaFree(vol_d   );
@@ -740,7 +744,7 @@ int crixus_main(int argc, char** argv){
 		return WRITE_FAIL;
 	}
 
-	/*
+
 	//Preparing output of gridpoints
 	cout << "Creating and initializing of output buffer of grid points ...";
 	gOutBuf *gbuf;
@@ -763,12 +767,12 @@ int crixus_main(int argc, char** argv){
 			if(k<nrggam){
 			linkbuf[k].id    = gbuf[i].id;
 			linkbuf[k].iggam = iggam[i*maxlink+j];
-			linkbuf[k].ggamx = ggam[i*maxlink*3+j*3];
-			linkbuf[k].ggamy = ggam[i*maxlink*3+j*3+1];
-			linkbuf[k].ggamz = ggam[i*maxlink*3+j*3+2];
-			gbuf[i].ggamx += linkbuf[k].ggamx;
-			gbuf[i].ggamy += linkbuf[k].ggamy;
-			gbuf[i].ggamz += linkbuf[k].ggamz;
+			linkbuf[k].ggam  = sqrt(sqr(ggam[i*maxlink*3+j*3])+
+															sqr(ggam[i*maxlink*3+j*3+1])+
+															sqr(ggam[i*maxlink*3+j*3+2]));
+			gbuf[i].ggamx += ggam[i*maxlink*3+j*3]; // am-todo this is only debug output and can be removed
+			gbuf[i].ggamy += ggam[i*maxlink*3+j*3+1]; // this will also make it possible to reduce the size of ggam
+			gbuf[i].ggamz += ggam[i*maxlink*3+j*3+2];
 			k++;
 			}
 			if(k>nrggam){
@@ -811,8 +815,8 @@ int crixus_main(int argc, char** argv){
 	fname[1] = '.';
 	fname[2] = 'l';
 	fname[3] = 'i';
-	fname[4] = 'n';
-	fname[5] = 'k';
+	fname[4] = 's';
+	fname[5] = 't';
 	fname[6] = '.';
 	strncpy(fname+7, argv[1], flen-3);
 	strncpy(fname+flen+4, fend, strlen(fend));
@@ -824,7 +828,6 @@ int crixus_main(int argc, char** argv){
 		cout << " [FAILED]" << endl;
 		return WRITE_FAIL;
 	}
-	*/
 
 	//Free memory
 	//Arrays
@@ -839,11 +842,9 @@ int crixus_main(int argc, char** argv){
 	for(unsigned int i=0; i<nfbox; i++)
 		delete [] fpos[i];
 	delete [] fpos;
-	/*
 	delete [] ggam;
 	delete [] iggam;
 	delete [] gpos;
-	*/
 	//Cuda
 	cudaFree( per_d   );
 	cudaFree( dmin_d  );
@@ -958,9 +959,7 @@ int hdf5_link_output (linkOutBuf *buf, int len, const char *filename, float *tim
 
 	H5Tinsert(mem_type_id, "Index"          , HOFFSET(linkOutBuf, id),      H5T_NATIVE_INT);
 	H5Tinsert(mem_type_id, "boundary_index" , HOFFSET(linkOutBuf, iggam),   H5T_NATIVE_INT);
-	H5Tinsert(mem_type_id, "grad_gamma_0"   , HOFFSET(linkOutBuf, ggamx),   H5T_NATIVE_FLOAT);
-	H5Tinsert(mem_type_id, "grad_gamma_1"   , HOFFSET(linkOutBuf, ggamy),   H5T_NATIVE_FLOAT);
-	H5Tinsert(mem_type_id, "grad_gamma_2"   , HOFFSET(linkOutBuf, ggamz),   H5T_NATIVE_FLOAT);
+	H5Tinsert(mem_type_id, "grad_gamma"     , HOFFSET(linkOutBuf, ggam),    H5T_NATIVE_FLOAT);
 
 	dataset_id = H5Dcreate(loc_id, DATASETNAME, mem_type_id, file_space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
 	H5Sclose(file_space_id);

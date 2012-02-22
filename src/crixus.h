@@ -24,7 +24,7 @@ struct gOutBuf{
 };
 struct linkOutBuf{
 	int id, iggam;
-	float ggamx, ggamy, ggamz;
+	float ggam;
 };
 
 //function headers

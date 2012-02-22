@@ -740,15 +740,40 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 		id+=blockDim.x*gridDim.x;
 	}
 
-	//am-todo exit loop here
-	if(i_c==0){
-		lock.lock();
-		lock.unlock();
+	//for some reason I have to use the atomicAdd function here. why?
+	atomicAdd(nrggam,nrggaml[i_c]);
+	/*__syncthreads();
+	int j = blockDim.x/2;
+	while (j!=0){
+		if(i_c < j)
+			nrggaml[i_c] += nrggaml[i_c+j];
+		__syncthreads();
+		j /= 2;
 	}
-	__syncthreads();
 
+	if(i_c == 0){
+		lock.lock();
+		*nrggam += nrggaml[0];
+		lock.unlock();
+	}*/
+}
+
+__global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, int *iggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock, float *deb, int *ilock)
+{
 	//calculate the others using Lobato
-	id = blockIdx.x*blockDim.x+threadIdx.x;
+	int id = blockIdx.x*blockDim.x+threadIdx.x;
+	int dim[3];
+	for(int i=0; i<3; i++)
+		dim[i] = (floor(((*dmax).a[i]+eps-(*dmin).a[i])/dr)+1);
+
+	//initializing random number generator
+	float iseed = (float)id/((float)(blockDim.x*gridDim.x))+seed;
+	if(iseed > 1.)
+		iseed -= 1.;
+	iseed = rand(iseed);
+	for(int i=0; i<(int)(iseed*20.); i++)
+		iseed = rand(iseed);
+
 	while(id<ngridp){
 		int ij=0;
 		//find neighbouring grid points, don't look for diagonal ones, shouldn't be necessary
@@ -883,23 +908,6 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 		}
 		id+=blockDim.x*gridDim.x;
 	}
-
-//for some reason I have to use the atomicAdd function here. why?
-	atomicAdd(nrggam,nrggaml[i_c]);
-	/*__syncthreads();
-	int j = blockDim.x/2;
-	while (j!=0){
-		if(i_c < j)
-			nrggaml[i_c] += nrggaml[i_c+j];
-		__syncthreads();
-		j /= 2;
-	}
-
-	if(i_c == 0){
-		lock.lock();
-		*nrggam += nrggaml[0];
-		lock.unlock();
-	}*/
 }
 
 __global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float ymax, float zmin, float zmax, float eps, float dr, int *nfib, int fmax, Lock lock)
