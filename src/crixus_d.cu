@@ -174,6 +174,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 	int tri[trimax][3];
 	float avnorm[3];
 	bool first[trimax];
+	uf4 edgen[trimax];
 	float vnorm;
 	bool closed;
 	int iduma[3];
@@ -194,8 +195,11 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 		unsigned int tris = trisize[i];
     if(tris > trimax)
       return; //exception needs to be thrown
-		for(unsigned int j=0; j<tris; j++)
+		for(unsigned int j=0; j<tris; j++){
 			first[j] = true;
+			for(unsigned int k=0; k<3; k++)
+				edgen[j].a[k] = 0.;
+		}
 		for(unsigned int j=0; j<3; j++)
       avnorm[j] = 0.;
 
@@ -208,6 +212,31 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 					tri[itris][1] = ep[j].a[(k+2)%3];
 					tri[itris][2] = j;
 					itris++;
+				}
+			}
+		}
+		
+		// calculate average normal at edge
+		itris = 0;
+		for(unsigned int j=0; j<nbe; j++){
+			for(unsigned int k=0; k<tris; k++){
+				if(edgen[k].a[3]==2)
+					continue;
+				int vfound = 0;
+				for(unsigned int l=0; l<3; l++){
+					if(ep[j].a[l] == tri[k][0] || ep[j].a[l] == tri[k][1])
+						vfound++;
+				}
+				if(vfound==2){
+					for(unsigned int l=0; l<3; l++)
+						edgen[k].a[l] += norm[j].a[l];
+					edgen[k].a[3]++;
+				}
+				if(edgen[k].a[3]==2){ //cross product to determine normal of wall
+					int tmpvec[3], edge[3];
+					for(unsigned int n=0; n<3; n++) edge[n] = pos[tri[k][0]] - pos[tri[k][1]];
+					for(unsigned int n=0; n<3; n++)	tmpvec[n] = edgen[k].a[(n+1)%3]*edge[(n+2)%3]-edgen[k].a[(n+2)%3]*edge[(n+1)%3];
+					for(unsigned int n=0; n<3; n++) edgen[k].a[n] = tmpvec[n];
 				}
 			}
 		}
@@ -341,6 +370,12 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 							for(unsigned int n=0; n<3; n++)	cvec[j][k+9][n] *= -1.;
 						}
 					}
+					//edge normal to point in right direction
+					sp = 0.;
+					for(unsigned int n=0; n<3; n++) sp += edgen[j].a[n]*cvec[j][5][n]; //sp of edge plane normal and vector pointing from vertex to plane point
+					if(sp < 0.){
+						for(unsigned int n=0; n<3; n++) edgen[j].a[n] *= -1.; //flip
+					}
 				}
 
 			  //remove unwanted points and sum up for volume
@@ -388,6 +423,22 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 					else if(o==2 && half){
 						vgrid /= 2.;
 					}
+				}
+				//edges
+				sp = 0.;
+				for(unsigned int n=0; n<3; n++){
+					tvec[0][n] = gp[n] - cvec[j][5][n];
+					sp += tvec[0][n]*edgen[j].a[n];
+				}
+				if(sp>0.+eps){
+					vgrid = 0.;
+#ifdef bdebug
+			if(i==bdebug) debug[k+l*gsize+m*gsize*gsize].a[3] = 0.;
+#endif
+					break;
+				}
+				else if(fabs(sp) < eps){
+					vgrid /= 2.;
 				}
 				if(vgrid < eps) break;
 
@@ -538,101 +589,37 @@ __device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf
 	for(int i=0; i<nlink; i++){
 		int ib = link[i];
 		float nggam = 0.;
-		float vol = surf[ib]/(float)ipoints;
-		uf4 edges[3];
+		uf4 verts[3];
 		for(int j=0; j<3; j++){
-			edges[0].a[j] = pos[ep[ib].a[1]].a[j] - pos[ep[ib].a[0]].a[j];
-			edges[1].a[j] = pos[ep[ib].a[2]].a[j] - pos[ep[ib].a[0]].a[j];
+			for(int k=0; k<3; k++)
+				verts[j].a[k] = pos[ep[ib].a[j]].a[k];
 		}
-		uf4 bv[2]; //bv ... basis vectors
-		float vnorm=0.;
-		float sps[5];
-		for(int j=0; j<5; j++)
-			sps[j] = 0.;
 		for(int j=0; j<3; j++){
-			bv[0].a[j] = edges[0].a[j];
-			bv[1].a[j] = edges[1].a[j];
-			vnorm+=sqr(bv[0].a[j]);
-			sps[0] += edges[0].a[j]*edges[0].a[j];
-			sps[1] += edges[0].a[j]*edges[1].a[j];
-			sps[3] += edges[1].a[j]*edges[1].a[j];
-		}
-		vnorm = sqrt(vnorm);
-		bv[0].a[3] = vnorm;
-		float sp=0.;
-		for(int j=0; j<3; j++){
-			bv[0].a[j] /= vnorm;
-			sp += bv[0].a[j]*bv[1].a[j];
-		}
-		vnorm = 0.;
-		for(int j=0; j<3; j++){
-			bv[1].a[j] -= sp*bv[0].a[j];
-			vnorm += sqr(bv[1].a[j]);
-		}
-		vnorm = sqrt(vnorm);
-		float spbv1[2];
-		spbv1[0] = 0.;
-		spbv1[1] = 0.;
-		for(int j=0; j<3; j++){
-			bv[1].a[j] /= vnorm;
-			spbv1[0] += bv[0].a[j]*edges[1].a[j];
-			spbv1[1] += bv[1].a[j]*edges[1].a[j];
 			if(ongpoint) ggam[id*maxlink*3+i*3+j]  = 0.;
 		}
-		vnorm = max(bv[0].a[3],max(spbv1[0],spbv1[1]));
-		for(int j=0; j<3; j++){
-			bv[0].a[j] *= vnorm;
-			bv[1].a[j] *= vnorm;
-		}
-		/*if(id==1269){
-			for(int j=0; j<3; j++){
-				deb[j+0] = edges[0].a[j];
-				deb[j+3] = edges[1].a[j];
-				deb[j+6] = bv[0].a[j];
-				deb[j+9] = bv[1].a[j];
-			}
-		}*/
 		for(int j=0; j<ipoints; j++){
-			bool intri = false;
-			int it = 0;
-			while(!intri){
-				//generate random point inside span(bv[i])
-				float tpi[2];
-				iseed = rand(iseed);
-				tpi[0] = iseed;
-				iseed = rand(iseed);
-				tpi[1] = iseed;
+			int it;
+			if(ipoints < 1)
+				it = 0;
+			else if(ipoints < 8)
+				it = 3;
+			else
+				it = 6;
+			float wei = intri[j].a[0];
+			float bpos[3];
+			for(int k=0; k<3; k++)
+				bpos[k] = intri[j].a[k+1];
+			int per[3];
+			for(int l=0; l<it; l++){
 				uf4 tp;
-				sps[2] = 0.;
-				sps[4] = 0.;
+				per[0] = l%3;
+				per[1] = (l+1+l/3)%3;
+				per[2] = (l+2-l/3)%3;
 				for(int k=0; k<3; k++){
-					tp.a[k] = tpi[0]*bv[0].a[k] + tpi[1]*bv[1].a[k] + pos[ep[ib].a[0]].a[k];
-					edges[2].a[k] = tp.a[k] - pos[ep[ib].a[0]].a[k];
-					sps[2] += edges[0].a[k]*edges[2].a[k];
-					sps[4] += edges[1].a[k]*edges[2].a[k];
+					tp.a[k] = 0.
+					for(int m=0; m<3; m++)
+						tp.a[k] += bpos[j].a[per[m]]*verts[m].a[k];
 				}
-				float invdet = 1./(sps[0]*sps[3]-sps[1]*sps[1]);
-				float u = (sps[3]*sps[2]-sps[1]*sps[4])*invdet;
-				float v = (sps[0]*sps[4]-sps[1]*sps[2])*invdet;
-				/*if(id==1269){
-					for(int k=0; k<3; k++){
-						deb[k+12] = edges[2].a[k];
-						deb[k+18] = tp.a[k];
-					}
-					deb[15] = u;
-					deb[16] = v;
-					deb[17] = invdet;
-					deb[21] = vnorm;
-				}*/
-				//point inside triangle?
-				if(u >= 0 && v >= 0 && u + v < 1)
-					intri = true;
-				it++;
-				if(it > 1000){
-					//deb[23] = -(float) id;
-					return MC_FAIL; }// no point was inside triangle. bad luck?
-				if(!intri)
-					continue;
 				float q = 0.;
 				for(int k=0; k<3; k++)
 					q += sqr(tp.a[k]-tpos.a[k]);
@@ -640,16 +627,16 @@ __device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf
 				switch(iker){
 					case 1:
 					default:
-						nggam += wendland_kernel(q,h);
+						nggam += wei*wendland_kernel(q,h);
 				}
 			}
 		}
 		for(int j=0; j<3; j++){
 			if(ongpoint){
-				ggam[id*maxlink*3+i*3+j]  += nggam * vol * norm[ib].a[j];
+				ggam[id*maxlink*3+i*3+j]  += nggam * surf[ib] * norm[ib].a[j];
 			}
 			else{
-				ggam[j] += nggam * vol * norm[ib].a[j];
+				ggam[j] += nggam * surf[ib] * norm[ib].a[j];
 			}
 		}
 		if(ongpoint)
