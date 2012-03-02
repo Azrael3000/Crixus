@@ -481,12 +481,12 @@ int crixus_main(int argc, char** argv){
 	gam   = new float[ngridp];
 	ggam  = new float[ngridp*maxlink*3];
 	iggam = new int[ngridp*maxlink];
-	CUDA_SAFE_CALL( cudaMalloc((void **) &gpos_d  ,           ngridp*sizeof(uf4  )) );
-	CUDA_SAFE_CALL( cudaMalloc((void **) &gam_d   ,           ngridp*sizeof(float)) );
-	CUDA_SAFE_CALL( cudaMalloc((void **) &ilock   ,           ngridp*sizeof(int  )) );
-	CUDA_SAFE_CALL( cudaMalloc((void **) &ggam_d  , ngridp*maxlink*3*sizeof(float)) );
-	CUDA_SAFE_CALL( cudaMalloc((void **) &iggam_d ,   ngridp*maxlink*sizeof(int  )) );
-	CUDA_SAFE_CALL( cudaMalloc((void **) &nrggam_d,                  sizeof(int  )) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &gpos_d  ,         ngridp*sizeof(uf4  )) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &gam_d   ,         ngridp*sizeof(float)) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &ilock   ,         ngridp*sizeof(int  )) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &ggam_d  , ngridp*maxlink*sizeof(float)) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &iggam_d , ngridp*maxlink*sizeof(int  )) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &nrggam_d,                sizeof(int  )) );
 	//setting indices
 	const unsigned int uibs = 8*sizeof(unsigned int);
 	unsigned int byte[uibs];
@@ -524,13 +524,17 @@ int crixus_main(int argc, char** argv){
 	seed = (seed >= 0.8 ? seed - 0.8 : seed + 0.2); //insert time here
 	lobato_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, iggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d, ilock);
 
-	CUDA_SAFE_CALL( cudaMemcpy((void *) deb   , (void *) deb_d  ,           numBlocks*numThreads*sizeof(float), cudaMemcpyDeviceToHost) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos   , (void *) gpos_d  ,           ngridp*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) gam    , (void *) gam_d   ,           ngridp*sizeof(float), cudaMemcpyDeviceToHost) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) ggam   , (void *) ggam_d  , ngridp*maxlink*3*sizeof(float), cudaMemcpyDeviceToHost) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) iggam  , (void *) iggam_d ,   ngridp*maxlink*sizeof(int  ), cudaMemcpyDeviceToHost) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) &nrggam, (void *) nrggam_d,                  sizeof(int  ), cudaMemcpyDeviceToHost) );
-//	for(int i=0; i<numBlocks*numThreads; i++) if(deb[i] > 0.5) cout << i << " " <<  deb[i] << endl;
+//	CUDA_SAFE_CALL( cudaMemcpy((void *) deb   , (void *) deb_d  ,           numBlocks*numThreads*sizeof(float), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos   , (void *) gpos_d  ,         ngridp*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) gam    , (void *) gam_d   ,         ngridp*sizeof(float), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) ggam   , (void *) ggam_d  , ngridp*maxlink*sizeof(float), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) iggam  , (void *) iggam_d , ngridp*maxlink*sizeof(int  ), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) &nrggam, (void *) nrggam_d,                sizeof(int  ), cudaMemcpyDeviceToHost) );
+/*	for(int i=0; i<ngridp; i+=10){
+		for(int j=0; j<10; j++)
+			if(deb[i] >-10.5) cout << i+j << "\t" <<  deb[i+j] << "\t";
+		cout << endl;
+	}*/
 //	for(int i=0; i<24; i+= 3)  cout << deb[i] << " " << deb[i+1] << " " << deb[i+2] << endl;
 
 	cudaFree(deb_d   );
@@ -767,12 +771,10 @@ int crixus_main(int argc, char** argv){
 			if(k<nrggam){
 			linkbuf[k].id    = gbuf[i].id;
 			linkbuf[k].iggam = iggam[i*maxlink+j];
-			linkbuf[k].ggam  = sqrt(sqr(ggam[i*maxlink*3+j*3])+
-															sqr(ggam[i*maxlink*3+j*3+1])+
-															sqr(ggam[i*maxlink*3+j*3+2]));
-			gbuf[i].ggamx += ggam[i*maxlink*3+j*3]; // am-todo this is only debug output and can be removed
-			gbuf[i].ggamy += ggam[i*maxlink*3+j*3+1]; // this will also make it possible to reduce the size of ggam
-			gbuf[i].ggamz += ggam[i*maxlink*3+j*3+2];
+			linkbuf[k].ggam  = ggam[i*maxlink+j];
+			gbuf[i].ggamx += ggam[i*maxlink+j]*norma[iggam[i*maxlink+j]].a[0]; // am-note this is only debug output
+			gbuf[i].ggamy += ggam[i*maxlink+j]*norma[iggam[i*maxlink+j]].a[1];
+			gbuf[i].ggamz += ggam[i*maxlink+j]*norma[iggam[i*maxlink+j]].a[2];
 			k++;
 			}
 			if(k>nrggam){

@@ -234,7 +234,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 				}
 				if(edgen[k].a[3]==2){ //cross product to determine normal of wall
 					int tmpvec[3], edge[3];
-					for(unsigned int n=0; n<3; n++) edge[n] = pos[tri[k][0]] - pos[tri[k][1]];
+					for(unsigned int n=0; n<3; n++) edge[n] = pos[tri[k][0]].a[n] - pos[tri[k][1]].a[n];
 					for(unsigned int n=0; n<3; n++)	tmpvec[n] = edgen[k].a[(n+1)%3]*edge[(n+2)%3]-edgen[k].a[(n+2)%3]*edge[(n+1)%3];
 					for(unsigned int n=0; n<3; n++) edgen[k].a[n] = tmpvec[n];
 				}
@@ -595,13 +595,13 @@ __device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf
 				verts[j].a[k] = pos[ep[ib].a[j]].a[k];
 		}
 		for(int j=0; j<3; j++){
-			if(ongpoint) ggam[id*maxlink*3+i*3+j]  = 0.;
+			if(ongpoint) ggam[id*maxlink+i]  = 0.;
 		}
 		for(int j=0; j<ipoints; j++){
 			int it;
-			if(ipoints < 1)
-				it = 0;
-			else if(ipoints < 8)
+			if(j < 1)
+				it = 1;
+			else if(j < 9)
 				it = 3;
 			else
 				it = 6;
@@ -616,9 +616,9 @@ __device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf
 				per[1] = (l+1+l/3)%3;
 				per[2] = (l+2-l/3)%3;
 				for(int k=0; k<3; k++){
-					tp.a[k] = 0.
+					tp.a[k] = 0.;
 					for(int m=0; m<3; m++)
-						tp.a[k] += bpos[j].a[per[m]]*verts[m].a[k];
+						tp.a[k] += bpos[per[m]]*verts[m].a[k];
 				}
 				float q = 0.;
 				for(int k=0; k<3; k++)
@@ -631,16 +631,14 @@ __device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf
 				}
 			}
 		}
-		for(int j=0; j<3; j++){
-			if(ongpoint){
-				ggam[id*maxlink*3+i*3+j]  += nggam * surf[ib] * norm[ib].a[j];
-			}
-			else{
-				ggam[j] += nggam * surf[ib] * norm[ib].a[j];
-			}
-		}
-		if(ongpoint)
+		if(ongpoint){
+			ggam[id*maxlink+i]  += nggam * surf[ib];
 			iggam[id*maxlink+i] = ib;
+		}
+		else{
+			for(int j=0; j<3; j++)
+				ggam[j] += nggam * surf[ib] * norm[ib].a[j];
+		}
 	}
 	return nlink;
 }
@@ -681,7 +679,7 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 		int nlink = calc_ggam(tpos, pos, ep, surf, norm, gpos, ggam, iggam, dmin, dmax, per, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, iseed, true, id);
 
 		for(int i=nlink; i<maxlink; i++){
-			ggam[id*maxlink*3+i*3] = -1e10;
+			ggam[id*maxlink+i] = -1e10;
 			iggam[id*maxlink+i] = -1;
 		}
 		nrggaml[i_c] += nlink;
@@ -799,6 +797,7 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 				break;
 		}
 		bool gamcalc = (gam[id] > -0.5);
+		deb[id] = gam[id];
 		while(!gamcalc){
 			float W[7],P[6];
 			W[0] = 0.0476190476;
@@ -818,6 +817,7 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 					continue;
 				int locked = 1;
 				locked = atomicAnd(ilock + (neibs[i]), locked);
+				deb[id] = 0.5;
 				if(locked == 0 && gam[neibs[i]] > 1e-9 ){
 					atomicExch(ilock+(id),1);
 					uf4 rvec, mid;
@@ -831,16 +831,16 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 					//end points
 					for(int j=0; j<maxlink; j++){
 						int end = 0;
-						if(ggam[id*maxlink*3+j*3] > -1e9){
+						if(ggam[id*maxlink+j] > -1e9){
 							for(int k=0; k<3; k++)
-								tggam[k] += ggam[id*maxlink*3+j*3+k];
+								tggam[k] += ggam[id*maxlink+j]*norm[iggam[id*maxlink+j]].a[k];
 						}
 						else{
 							end++;
 						}
-						if(ggam[idn*maxlink*3+j*3] > -1e9){
+						if(ggam[idn*maxlink+j] > -1e9){
 							for(int k=0; k<3; k++)
-								tggam[k] += ggam[idn*maxlink*3+j*3+k];
+								tggam[k] += ggam[idn*maxlink+j]*norm[iggam[idn*maxlink+j]].a[k];
 						}
 						else{
 							end++;
@@ -868,6 +868,7 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 					}
 					//end of gam calculation
 					tgam = fmin(1.f,tgam);
+					deb[id] = 1.;
 					/*if(id==6733){
 						deb[0] = idn;
 						deb[1] = gam[idn];
@@ -882,14 +883,15 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 					if(tgam > 1e-8 || ij > 200){
 						if(ij > 200)
 							tgam = fmax(1e-8f, tgam);
-						deb[id] = ij;
 						gam[id] = tgam;
+						deb[id] = gam[id];
 						gamcalc = true;
 						if(gam[id]>0.)
 							atomicExch((ilock+id),0);
 						break;
 					}
 					ij++; // not sure why ij is necessary but it certainly works
+					deb[id] = 0.7;
 				}
 			}
 		}
