@@ -9,7 +9,7 @@
 //variables
 const unsigned int maxfbox = 100;// maximum number of fluid boxes
 const unsigned int gres    = 10; // grid resolution = dr/dr_grid
-const unsigned int trimax  = 100;// maximum amount of triangles associated to one vertex particle
+const unsigned int trimax  = 50; // maximum amount of triangles associated to one vertex particle
 const unsigned int maxlink = 500;// maximum number of links (grid points to boundary elements & vertex particles
 const unsigned int ipoints = 17; // number of unique integration points for gauss quadrature (without permutations)
 
