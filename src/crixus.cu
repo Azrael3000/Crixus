@@ -476,17 +476,22 @@ int crixus_main(int argc, char** argv){
 	uf4   *gpos , *gpos_d;   // position of grid point and index
 	float *gam  , *gam_d;    // gamma of grid point
 	float *ggam , *ggam_d;   // grad gamma_{pb} of grid point
+	float *ggam_cp;
+	uf4   *gggam, *gggam_d;  // grad gamma_p //am-todo hide gam in there
 	int   *iggam, *iggam_d;  // index of boundary element
 	int   nrggam, *nrggam_d; // number of links of all grid points
 	int   *ilock;            // lock while calculating gamma
 	gpos  = new uf4  [ngridp];
 	gam   = new float[ngridp];
+	gggam = new uf4  [ngridp];
+	ggam_cp = new float[numThreads];
 	ggam  = new float[ngridp*maxlink*3];
 	iggam = new int[ngridp*maxlink];
 	CUDA_SAFE_CALL( cudaMalloc((void **) &gpos_d  ,         ngridp*sizeof(uf4  )) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &gggam_d ,         ngridp*sizeof(uf4  )) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &gam_d   ,         ngridp*sizeof(float)) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &ilock   ,         ngridp*sizeof(int  )) );
-	CUDA_SAFE_CALL( cudaMalloc((void **) &ggam_d  , ngridp*maxlink*sizeof(float)) );
+	CUDA_SAFE_CALL( cudaMalloc((void **) &ggam_d  ,     numThreads*sizeof(float)) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &iggam_d , ngridp*maxlink*sizeof(int  )) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &nrggam_d,                sizeof(int  )) );
 	//setting indices
@@ -521,15 +526,26 @@ int crixus_main(int argc, char** argv){
 	sec = time(NULL);
 	float seed = (float)((int)sec%3571)/3571.;
 	
-	init_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, iggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d, ilock);
+	for(int i=0; i<ngridp; i+=numThreads){
+		int ngridpmax = min((i+1)*numThreads,ngridp);
+		int offset = i*numThreads;
+
+		init_gpoints <<<1,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, iggam_d, dmin_d, dmax_d, per_d, ngridpmax, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d, ilock, gggam_d, offset);
+
+		CUDA_SAFE_CALL( cudaMemcpy((void *) ggam_cp, (void *) ggam_d, numThreads*sizeof(float), cudaMemcpyDeviceToHost) );
+		for(int j=offset; j<ngridpmax; j++){
+			for(int k=0; k<maxlink; k++)
+				ggam[j*maxlink+k] = ggam_cp[(j-offset)*maxlink+k];
+		}
+	}
 
 	seed = (seed >= 0.8 ? seed - 0.8 : seed + 0.2); //insert time here
-	lobato_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, iggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d, ilock);
+	lobato_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d, ilock, gggam_d);
 
 	CUDA_SAFE_CALL( cudaMemcpy((void *) deb   , (void *) deb_d  ,           numBlocks*numThreads*sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos   , (void *) gpos_d  ,         ngridp*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) gam    , (void *) gam_d   ,         ngridp*sizeof(float), cudaMemcpyDeviceToHost) );
-	CUDA_SAFE_CALL( cudaMemcpy((void *) ggam   , (void *) ggam_d  , ngridp*maxlink*sizeof(float), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) gggam  , (void *) gggam_d ,         ngridp*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) iggam  , (void *) iggam_d , ngridp*maxlink*sizeof(int  ), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) &nrggam, (void *) nrggam_d,                sizeof(int  ), cudaMemcpyDeviceToHost) );
 /*	for(int i=0; i<ngridp; i+=10){
@@ -537,19 +553,21 @@ int crixus_main(int argc, char** argv){
 			if(deb[i] >-10.5) cout << i+j << "\t" <<  deb[i+j] << "\t";
 		cout << endl;
 	}*/
-	for(int i=0; i<24; i+= 3)  cout << deb[i] << " " << deb[i+1] << " " << deb[i+2] << endl;
+//	for(int i=0; i<24; i+= 3)  cout << deb[i] << " " << deb[i+1] << " " << deb[i+2] << endl;
 
 	cudaFree(deb_d   );
 	cudaFree(gpos_d  );
 	cudaFree(ggam_d  );
+	cudaFree(gggam_d );
 	cudaFree(iggam_d );
 	cudaFree(nrggam_d);
-	cout << " [OK]" << endl;
 	cudaFree(norm_d  );
 	cudaFree(pos_d   );
 	cudaFree(vol_d   );
 	cudaFree(surf_d  );
 	cudaFree(ep_d    );
+	delete [] gggam;//amnew
+	cout << " [OK]" << endl;
 
 	//setting up fluid particles
 	cout << "\nDefining fluid particles in a box ..." << endl;
@@ -772,14 +790,14 @@ int crixus_main(int argc, char** argv){
 				break;
 			if(k<nrggam){
 			linkbuf[k].id    = gbuf[i].id;
-			linkbuf[k].iggam = iggam[i*maxlink+j];
+			linkbuf[k].iggam = iggam[i*maxlink+j]+nfluid+nvert;
 			linkbuf[k].ggam  = ggam[i*maxlink+j];
 			gbuf[i].ggamx += ggam[i*maxlink+j]*norma[iggam[i*maxlink+j]].a[0]; // am-note this is only debug output
 			gbuf[i].ggamy += ggam[i*maxlink+j]*norma[iggam[i*maxlink+j]].a[1];
 			gbuf[i].ggamz += ggam[i*maxlink+j]*norma[iggam[i*maxlink+j]].a[2];
 			k++;
 			}
-			if(k>nrggam){
+			else if(k>nrggam){
 				cout << " [FAILED]" << endl;
 				return NRGGAM_WRONG;
 			}
