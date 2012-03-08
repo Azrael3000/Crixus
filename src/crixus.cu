@@ -380,12 +380,14 @@ int crixus_main(int argc, char** argv){
 
 	CUDA_SAFE_CALL( cudaMemcpy((void*) debug, (void*) debug_d, debugs*sizeof(uf4), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void*) debugp, (void*) debugp_d, 100*sizeof(float), cudaMemcpyDeviceToHost) );
-	for(int i=0; i<20; i++){
+	for(int i=0; i<30; i++){
 		cout << i << " " << debugp[i] << endl;
 	}
 #endif
 
 	CUDA_SAFE_CALL( cudaMemcpy((void *) vola,(void *) vol_d, nvert*sizeof(float), cudaMemcpyDeviceToHost) );
+	//cout << endl;
+	//for(int i=0; i<30; i++) cout << i << " " << vola[i] << endl;
 	cudaFree( trisize );
 	cudaFree( vol_d   );
 
@@ -524,7 +526,7 @@ int crixus_main(int argc, char** argv){
 	seed = (seed >= 0.8 ? seed - 0.8 : seed + 0.2); //insert time here
 	lobato_gpoints <<<numBlocks,numThreads>>> (pos_d, ep_d, surf_d, norm_d, gpos_d, gam_d, ggam_d, iggam_d, dmin_d, dmax_d, per_d, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, seed, nrggam_d, lock_gpoints, deb_d, ilock);
 
-//	CUDA_SAFE_CALL( cudaMemcpy((void *) deb   , (void *) deb_d  ,           numBlocks*numThreads*sizeof(float), cudaMemcpyDeviceToHost) );
+	CUDA_SAFE_CALL( cudaMemcpy((void *) deb   , (void *) deb_d  ,           numBlocks*numThreads*sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) gpos   , (void *) gpos_d  ,         ngridp*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) gam    , (void *) gam_d   ,         ngridp*sizeof(float), cudaMemcpyDeviceToHost) );
 	CUDA_SAFE_CALL( cudaMemcpy((void *) ggam   , (void *) ggam_d  , ngridp*maxlink*sizeof(float), cudaMemcpyDeviceToHost) );
@@ -535,7 +537,7 @@ int crixus_main(int argc, char** argv){
 			if(deb[i] >-10.5) cout << i+j << "\t" <<  deb[i+j] << "\t";
 		cout << endl;
 	}*/
-//	for(int i=0; i<24; i+= 3)  cout << deb[i] << " " << deb[i+1] << " " << deb[i+2] << endl;
+	for(int i=0; i<24; i+= 3)  cout << deb[i] << " " << deb[i+1] << " " << deb[i+2] << endl;
 
 	cudaFree(deb_d   );
 	cudaFree(gpos_d  );
@@ -766,7 +768,7 @@ int crixus_main(int argc, char** argv){
 		gbuf[i].ggamy = 0.;
 		gbuf[i].ggamz = 0.;
 		for(int j=0; j<maxlink; j++){
-			if(ggam[i*maxlink*3+j*3] < -1e9)
+			if(ggam[i*maxlink+j] < -1e9)
 				break;
 			if(k<nrggam){
 			linkbuf[k].id    = gbuf[i].id;

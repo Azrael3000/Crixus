@@ -37,6 +37,6 @@ int hdf5_link_output (linkOutBuf *buf, int len, const char *filename, float *tim
 int crixus_main(int, char**);
 
 //debug
-//#define bdebug 1
+//#define bdebug 2344-960
 
 #endif
