@@ -638,21 +638,19 @@ __device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf
 				per[0] = l%3;
 				per[1] = (l+1+l/3)%3;
 				per[2] = (l+2-l/3)%3;
+				float q = 0.;
 				for(int k=0; k<3; k++){
 					tp.a[k] = 0.;
 					for(int m=0; m<3; m++)
 						tp.a[k] += bpos[per[m]]*verts[m].a[k];
-				}
-				float q = 0.;
-				for(int k=0; k<3; k++)
 					q += sqr(tp.a[k]-tpos.a[k]);
+				}
 				q = sqrt(q)/h;
-				if(q<2.){
-					switch(iker){
-						case 1:
-						default:
+				switch(iker){
+					case 1:
+					default:
+						if(q<2.)
 							nggam += wei*wendland_kernel(q,h);
-					}
 				}
 			}
 		}
@@ -668,8 +666,8 @@ __device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf
 	return nlink;
 }
 
-__global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, int *iggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock, float *deb, int *ilock){
-	int id = blockIdx.x*blockDim.x+threadIdx.x;
+__global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, int *iggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock, float *deb, int *ilock, uf4 *gggam, int offset){ //amnew
+	int id = blockIdx.x*blockDim.x+threadIdx.x+offset;
 	int i_c = threadIdx.x;
 	deb[id] = 0.;
 	ilock[id] = 0.;
@@ -698,11 +696,16 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 		for(int i=0; i<3; i++){
 			gpos[id].a[i] = (*dmin).a[i] + ((float)ipos[i])*dr;
 			tpos.a[i] = gpos[id].a[i];
+			ggam[id].a[i] = 0.;
 		}
 
 		//calculate ggam at tpos
 		int nlink = calc_ggam(tpos, pos, ep, surf, norm, gpos, ggam, iggam, dmin, dmax, per, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, iseed, true, id);
 
+		for(int i=0; i<nlink; i++){
+			for(int j=0; j<3; j++)
+				gggam[id].a[j] += ggam[id*maxlink+i]*norm[iggam[id*maxlink+i]].a[j];
+		}
 		for(int i=nlink; i<maxlink; i++){
 			ggam[id*maxlink+i] = -1e10;
 			iggam[id*maxlink+i] = -1;
@@ -712,7 +715,7 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 	} 
 	//calculate gamma
 	//find the ones with gamma = 1
-	id = blockIdx.x*blockDim.x+threadIdx.x;
+	id = blockIdx.x*blockDim.x+threadIdx.x+offset;
 	while(id<ngridp){
 		bool found = false;
 		float mindist = 1e10;
@@ -768,7 +771,7 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 	}*/
 }
 
-__global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, int *iggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock, float *deb, int *ilock)
+__global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock, float *deb, int *ilock, uf4 *gggam_d) //amnew
 {
 	//calculate the others using Lobato
 	int id = blockIdx.x*blockDim.x+threadIdx.x;
@@ -867,28 +870,9 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 					for(int j=0; j<3; j++){
 						rvec.a[j]  = (gpos[id].a[j]-gpos[idn].a[j])/2.;
 						mid.a[j]   = (gpos[id].a[j]+gpos[idn].a[j])/2.;
-						tggam[j] = 0.;
+						tggam[j] = ggam[id].a[j] + ggam[idn].a[j]; //amnew
 					}
 					//end points
-					for(int j=0; j<maxlink; j++){
-						int end = 0;
-						if(ggam[id*maxlink+j] > -1e9){
-							for(int k=0; k<3; k++)
-								tggam[k] += ggam[id*maxlink+j]*norm[iggam[id*maxlink+j]].a[k];
-						}
-						else{
-							end++;
-						}
-						if(ggam[idn*maxlink+j] > -1e9){
-							for(int k=0; k<3; k++)
-								tggam[k] += ggam[idn*maxlink+j]*norm[iggam[idn*maxlink+j]].a[k];
-						}
-						else{
-							end++;
-						}
-						if(end==2)
-							break;
-					}
 					float tgam;
 					tgam = gam[idn];
 					for(int j=0; j<3; j++)
@@ -902,7 +886,7 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 						}
 
 						//calc ggam at tp
-						int nlink = calc_ggam(tp, pos, ep, surf, norm, gpos, tggam, iggam, dmin, dmax, per, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, iseed, false, 0);
+						int nlink = calc_ggam(tp, pos, ep, surf, norm, gpos, tggam, NULL, dmin, dmax, per, ngridp, dr, hdr, iker, eps, nvert, nbe, krad, iseed, false, 0); //amnew
 
 						for(int k=0; k<3; k++)
 							tgam += W[j]*(tggam[k]*rvec.a[k]);
