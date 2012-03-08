@@ -197,7 +197,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
       return; //exception needs to be thrown
 		for(unsigned int j=0; j<tris; j++){
 			first[j] = true;
-			for(unsigned int k=0; k<3; k++)
+			for(unsigned int k=0; k<4; k++)
 				edgen[j].a[k] = 0.;
 		}
 		for(unsigned int j=0; j<3; j++)
@@ -211,32 +211,17 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 					tri[itris][0] = ep[j].a[(k+1)%3];
 					tri[itris][1] = ep[j].a[(k+2)%3];
 					tri[itris][2] = j;
+#ifdef bdebug
+//				for(int j=0; j<tris; j++){
+					if(i==bdebug){
+					debugp[4+itris*4+0] = ep[j].a[0]+960;
+					debugp[4+itris*4+1] = ep[j].a[1]+960;
+					debugp[4+itris*4+2] = ep[j].a[2]+960;
+					debugp[4+itris*4+3] = tri[itris][2]+2498;
+				}
+//				}
+#endif
 					itris++;
-				}
-			}
-		}
-		
-		// calculate average normal at edge
-		itris = 0;
-		for(unsigned int j=0; j<nbe; j++){
-			for(unsigned int k=0; k<tris; k++){
-				if(edgen[k].a[3]==2)
-					continue;
-				int vfound = 0;
-				for(unsigned int l=0; l<3; l++){
-					if(ep[j].a[l] == tri[k][0] || ep[j].a[l] == tri[k][1])
-						vfound++;
-				}
-				if(vfound==2){
-					for(unsigned int l=0; l<3; l++)
-						edgen[k].a[l] += norm[j].a[l];
-					edgen[k].a[3]++;
-				}
-				if(edgen[k].a[3]==2){ //cross product to determine normal of wall
-					int tmpvec[3], edge[3];
-					for(unsigned int n=0; n<3; n++) edge[n] = pos[tri[k][0]].a[n] - pos[tri[k][1]].a[n];
-					for(unsigned int n=0; n<3; n++)	tmpvec[n] = edgen[k].a[(n+1)%3]*edge[(n+2)%3]-edgen[k].a[(n+2)%3]*edge[(n+1)%3];
-					for(unsigned int n=0; n<3; n++) edgen[k].a[n] = tmpvec[n];
 				}
 			}
 		}
@@ -270,11 +255,39 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 		if(tri[0][0] != tri[tris-1][1]){
 			closed = false;
 		}
+		
+		// calculate average normal at edge
+		itris = 0;
+		for(unsigned int j=0; j<nbe; j++){
+			for(unsigned int k=0; k<tris; k++){
+				if((int)(edgen[k].a[3]+eps)==2)
+					continue;
+				int vfound = 0;
+				for(unsigned int l=0; l<3; l++){
+					if(ep[j].a[l] == tri[k][0] || ep[j].a[l] == tri[k][1])
+						vfound++;
+				}
+				if(vfound==2){
+					for(unsigned int l=0; l<3; l++)
+						edgen[k].a[l] += norm[j].a[l];
+					edgen[k].a[3]+=1.;
+				}
+				if((int)(edgen[k].a[3]+eps)==2){ //cross product to determine normal of wall
+					float tmpvec[3], edge[3];
+					for(unsigned int n=0; n<3; n++) edge[n] = pos[tri[k][0]].a[n] - pos[tri[k][1]].a[n];
+					for(unsigned int n=0; n<3; n++)	tmpvec[n] = edgen[k].a[(n+1)%3]*edge[(n+2)%3]-edgen[k].a[(n+2)%3]*edge[(n+1)%3];
+					for(unsigned int n=0; n<3; n++) edgen[k].a[n] = tmpvec[n];
+				}
+			}
+		}
 
 #ifdef bdebug
 			if(i==bdebug){
-				for(int j=0; j<100; j++) debugp[j] = 0.;
+//				for(int j=0; j<100; j++) debugp[j] = 0.;
 				debugp[0] = tris;
+				debugp[1] = pos[i].a[0];
+				debugp[2] = pos[i].a[1];
+				debugp[3] = pos[i].a[2];
 			}
 #endif
 
@@ -376,6 +389,16 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 					if(sp < 0.){
 						for(unsigned int n=0; n<3; n++) edgen[j].a[n] *= -1.; //flip
 					}
+#ifdef bdebug
+//				for(int j=0; j<tris; j++){
+					if(i==bdebug){
+					debugp[4+j*4+0] = edgen[j].a[0];
+					debugp[4+j*4+1] = edgen[j].a[1];
+					debugp[4+j*4+2] = edgen[j].a[2];
+					debugp[4+j*4+3] = tri[j][2]+2498;
+					}
+//				}
+#endif
 				}
 
 			  //remove unwanted points and sum up for volume
@@ -433,7 +456,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 				if(sp>0.+eps){
 					vgrid = 0.;
 #ifdef bdebug
-			if(i==bdebug) debug[k+l*gsize+m*gsize*gsize].a[3] = 0.;
+			if(i==bdebug) debug[k+l*gsize+m*gsize*gsize].a[3] = -0.5;
 #endif
 					break;
 				}
@@ -624,10 +647,12 @@ __device__ int calc_ggam(uf4 tpos, uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf
 				for(int k=0; k<3; k++)
 					q += sqr(tp.a[k]-tpos.a[k]);
 				q = sqrt(q)/h;
-				switch(iker){
-					case 1:
-					default:
-						nggam += wei*wendland_kernel(q,h);
+				if(q<2.){
+					switch(iker){
+						case 1:
+						default:
+							nggam += wei*wendland_kernel(q,h);
+					}
 				}
 			}
 		}
@@ -782,6 +807,15 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 			}
 			neibs[i] = -1;
 		}
+		if(gpos[id].a[3]==2045){
+			deb[0] = idneibs[0];
+			deb[1] = idneibs[1];
+			deb[2] = idneibs[2];
+			deb[3] = idneibs[3];
+			deb[4] = idneibs[4];
+			deb[5] = idneibs[5];
+			deb[6] = id;
+		}
 		int ii = 0;
 		for(int i=0; i<ngridp; i++){
 			if(i==id)
@@ -796,8 +830,16 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 			if(ii==6)
 				break;
 		}
+		if(gpos[id].a[3]==2045){
+			deb[7 ] = gpos[neibs[0]].a[3];
+			deb[8 ] = gpos[neibs[1]].a[3];
+			deb[9 ] = gpos[neibs[2]].a[3];
+			deb[10] = gpos[neibs[3]].a[3];
+			deb[11] = gpos[neibs[4]].a[3];
+			deb[12] = gpos[neibs[5]].a[3];
+		}
 		bool gamcalc = (gam[id] > -0.5);
-		deb[id] = gam[id];
+		int iq = 0;
 		while(!gamcalc){
 			float W[7],P[6];
 			W[0] = 0.0476190476;
@@ -817,7 +859,6 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 					continue;
 				int locked = 1;
 				locked = atomicAnd(ilock + (neibs[i]), locked);
-				deb[id] = 0.5;
 				if(locked == 0 && gam[neibs[i]] > 1e-9 ){
 					atomicExch(ilock+(id),1);
 					uf4 rvec, mid;
@@ -868,7 +909,6 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 					}
 					//end of gam calculation
 					tgam = fmin(1.f,tgam);
-					deb[id] = 1.;
 					/*if(id==6733){
 						deb[0] = idn;
 						deb[1] = gam[idn];
@@ -884,16 +924,16 @@ __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *
 						if(ij > 200)
 							tgam = fmax(1e-8f, tgam);
 						gam[id] = tgam;
-						deb[id] = gam[id];
 						gamcalc = true;
 						if(gam[id]>0.)
 							atomicExch((ilock+id),0);
 						break;
 					}
 					ij++; // not sure why ij is necessary but it certainly works
-					deb[id] = 0.7;
 				}
 			}
+			iq++;
+//			if(iq>1000000) return;
 		}
 		id+=blockDim.x*gridDim.x;
 	}
