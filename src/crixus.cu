@@ -350,7 +350,7 @@ int crixus_main(int argc, char** argv){
 			//if(err!=0) return err;
 			//host
 			cout << " [OK]" << endl;
-		} 
+		}
 	}
 	CUDA_SAFE_CALL( cudaFree(newlink) );
 

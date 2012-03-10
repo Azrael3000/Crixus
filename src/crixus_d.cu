@@ -305,7 +305,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 						vnorm += pow(cvec[j][0][n],2);
 					}
 					vnorm = sqrt(vnorm);
-					for(unsigned int n=0; n<3; n++) cvec[j][0][n] /= vnorm; 
+					for(unsigned int n=0; n<3; n++) cvec[j][0][n] /= vnorm;
 					for(unsigned int n=0; n<3; n++)	cvec[j][1][n] = cvec[j][0][(n+1)%3]*cvec[j][2][(n+2)%3]-cvec[j][0][(n+2)%3]*cvec[j][2][(n+1)%3]; //cross product of normal and edge1
 					vnorm = 0.;
 					for(unsigned int n=0; n<3; n++){
@@ -315,7 +315,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 						avnorm[n] -= norm[tri[j][2]].a[n];
 					}
 					vnorm = sqrt(vnorm);
-					for(unsigned int n=0; n<3; n++) cvec[j][3][n] /= vnorm; 
+					for(unsigned int n=0; n<3; n++) cvec[j][3][n] /= vnorm;
 					for(unsigned int n=0; n<3; n++)	cvec[j][4][n] = cvec[j][3][(n+1)%3]*cvec[j][2][(n+2)%3]-cvec[j][3][(n+2)%3]*cvec[j][2][(n+1)%3]; //cross product of normal and edge2
 				}
 				//filling vgrid
@@ -491,7 +491,7 @@ __global__ void calc_ngridp (uf4 *pos, unsigned int *igrid, uf4 *dmin, uf4 *dmax
 		lock.lock();
 		*ngridp += ngridpl[0];
 		lock.unlock();
-	} 
+	}
 }
 
 __device__ float rand(float seed){
@@ -684,7 +684,7 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 		lock.lock();
 		*nrggam += nrggaml[0];
 		lock.unlock();
-	} 
+	}
 }
 
 __global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float ymax, float zmin, float zmax, float eps, float dr, int *nfib, int fmax, Lock lock)
