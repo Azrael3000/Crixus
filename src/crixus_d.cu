@@ -712,7 +712,7 @@ __global__ void init_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gp
 		}
 		nrggaml[i_c] += nlink;
 		id+=blockDim.x*gridDim.x;
-	} 
+	}
 	//calculate gamma
 	//find the ones with gamma = 1
 	id = blockIdx.x*blockDim.x+threadIdx.x+offset;
