@@ -393,76 +393,334 @@ int crixus_main(int argc, char** argv){
 
 	cout << " [OK]" << endl;
 
-	cudaFree(norm_d  );
-	cudaFree(pos_d   );
 	cudaFree(vol_d   );
 	cudaFree(surf_d  );
-	cudaFree(ep_d    );
 
 	//setting up fluid particles
-	cout << "\nDefining fluid particles in a box ..." << endl;
+	cout << "\nDefining fluid particles ..." << endl;
+
+	cout << "Checking wether coarse grid is available ...";
+	bool bcoarse;
+	int flen = strlen(argv[1]);
+	char *cfname = new char[flen+7];
+	strncpy(cfname, argv[1], flen-4);
+	cfname[flen-4] = '_';
+	cfname[flen-3] = 'c';
+	cfname[flen-2] = 'o';
+	cfname[flen-1] = 'a';
+	cfname[flen-0] = 'r';
+	cfname[flen+1] = 's';
+	cfname[flen+2] = 'e';
+	strncpy(cfname+flen+3, argv[1]+flen-4, 4);
+	stl_file (cfname, ios::in | ios::binary); //no check is done whether or not the file is actually binary or not
+	if(!stl_file.is_open()){
+		bcoarse = false;
+		cout << " [NO]" << endl;
+	}
+	else{
+		bcoarse = true;
+		cout << " [YES]" << endl;
+	}
+
+	cout << "Checking wether fluid geometry is available ...";
+	bool bfgeom;
+	char *ffname = new char[flen+7];
+	strncpy(cfname, argv[1], flen-4);
+	cfname[flen-4] = '_';
+	cfname[flen-3] = 'f';
+	cfname[flen-2] = 's';
+	cfname[flen-1] = 'h';
+	cfname[flen-0] = 'a';
+	cfname[flen+1] = 'p';
+	cfname[flen+2] = 'e';
+	strncpy(cfname+flen+3, argv[1]+flen-4, 4);
+	ifstream fstl_file (ffname, ios::in | ios::binary); //no check is done whether or not the file is actually binary or not
+	if(!fstl_file.is_open()){
+		bfgeom = false;
+		cout << " [NO]" << endl;
+	}
+	else{
+		bfgeom = true;
+		cout << " [YES]" << endl;
+	}
+
 	bool set = true;
-	float fluid_vol = pow(dr,3);
+	bool firstfgeom = true;
+	unsigned int cnvert, cnbe;
+	uf4 *cnorma, *cposa;
+	ui4 *cep;
 	unsigned int nfluid = 0;
-	unsigned int *nfluid_in_box;
 	unsigned int nfbox = 0;
 	unsigned int maxf = 0, maxfn;
-	uf4 **fpos;
-	fpos = new uf4*[maxfbox];
-	nfluid_in_box = new unsigned int[maxfbox];
-	for(int i=0; i<maxfbox; i++)
-		nfluid_in_box[i] = 0;
-	int *nfib_d;
-	CUDA_SAFE_CALL( cudaMalloc((void **) &nfib_d, sizeof(int)) );
+	int opt;
+	unsigned int *fpos;
+	maxfn = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr+1)*floor((dmax.a[1]-dmin.a[1]+eps)/dr+1)*floor((dmax.a[2]-dmin.a[2]+eps)/dr+1));
+	maxf = int(ceil(float(maxfn)/8./float(sizeof(unsigned int))));
+	fpos = new unsigned int [maxf];
+	CUDA_SAFE_CALL( cudaMalloc((void **) &fpos_d, maxf*sizeof(unsigned int)) );
 
 	while(set){
 		xmin = xmax = ymin = ymax = zmin = zmax = 0.;
-		cout << "Enter dimensions of fluid box:" << endl;
-		cout << "xmin, xmax: ";
-		cin >> xmin >> xmax;
-		cout << "ymin, ymax: ";
-		cin >> ymin >> ymax;
-		cout << "zmin, zmax: ";
-		cin >> zmin >> zmax;
-		if(fabs(xmin-xmax)<1e-5*dr || fabs(ymin-ymax)<1e-5*dr || fabs(zmin-zmax)<1e-5*dr){
-			cout << "\nMistake in input for fluid box dimensions" << endl;
-			cout << "Fluid particle definition ... [FAILED]" << endl;
-			return FLUID_NDEF;
+		if(bfgeom){
+			cout << "Choose option:" << endl;
+			cout << " 1 ... Fluid in a box" << endl;
+			cout << " 2 ... Fluid based on geometry" << endl;
+			cout << "Input: ";
+			opt = 0
+			cin >> opt;
+			while(opt<1 || opt>2){
+				cout << "Wrong input try again: ";
+				cin >> opt;
+			}
 		}
-		maxfn = (floor((xmax+eps-xmin)/dr)+1)*(floor((ymax+eps-ymin)/dr)+1)*(floor((zmax+eps-zmin)/dr)+1);
-		size_t memReq = (size_t)maxfn*sizeof(uf4);
-		int it = (int)ceil((float)memReq/0.6/(float)globMemSize); // use at most 60% of the memory
-		if(nfbox + it >= maxfbox){
-			cout << "Too many fluid boxes " << nfbox << " " << it << endl;
-			break;
+		else{
+			opt = 1;
 		}
-		int ixpos = 0;
-		int nxplane = (floor((xmax+eps-xmin)/dr)+1);
-		for(int i=0; i<it; i++){
-			//1D domain decomposition
-			int ixplane = nxplane/it + ((i<nxplane%it)?1:0);
-			maxf = ixplane*(floor((ymax+eps-ymin)/dr)+1)*(floor((zmax+eps-zmin)/dr)+1);
-			float xmin_l = xmin + (float)ixpos*dr;
-			ixpos += ixplane;
-			float xmax_l = xmin + (float)(ixpos-1)*dr;
-			fpos[nfbox] = new uf4[maxf];
-			uf4 *fpos_d;
-			int nfib;
-			nfib = 0;
-			CUDA_SAFE_CALL( cudaMalloc((void **) &fpos_d, maxf*sizeof(uf4)) );
-			CUDA_SAFE_CALL( cudaMemcpy((void *) nfib_d, (void *) &nfib, sizeof(int), cudaMemcpyHostToDevice) );
+
+		if(opt==1){ // fluid based on rectangular box
+			cout << "Enter dimensions of fluid box:" << endl;
+			cout << "xmin, xmax: ";
+			cin >> xmin >> xmax;
+			cout << "ymin, ymax: ";
+			cin >> ymin >> ymax;
+			cout << "zmin, zmax: ";
+			cin >> zmin >> zmax;
+			if(fabs(xmin-xmax)<1e-5*dr || fabs(ymin-ymax)<1e-5*dr || fabs(zmin-zmax)<1e-5*dr){
+				cout << "\nMistake in input for fluid box dimensions" << endl;
+				cout << "Fluid particle definition ... [FAILED]" << endl;
+				return FLUID_NDEF;
+			}
 			numBlocks = (int) ceil((float)maxf/(float)numThreads);
 			numBlocks = min(numBlocks,maxblock);
 
 			Lock lock_f;
-			fill_fluid<<<numBlocks, numThreads>>> (fpos_d, xmin_l, xmax_l, ymin, ymax, zmin, zmax, eps, dr, nfib_d, maxf, lock_f);
-			
-			CUDA_SAFE_CALL( cudaMemcpy((void *) fpos[nfbox], (void *) fpos_d, maxf*sizeof(uf4), cudaMemcpyDeviceToHost) );
-			CUDA_SAFE_CALL( cudaMemcpy((void *) &nfib      , (void *) nfib_d,      sizeof(int), cudaMemcpyDeviceToHost) );
-			cudaFree( fpos_d );
-			nfluid_in_box[nfbox] = nfib;
-			nfluid += nfib;
-			nfbox += 1;
+			unsigned int nfi;
+			unsigned int *nfi_d;
+			CUDA_SAFE_CALL( cudaMalloc((void **) &nfi_d, sizeof(unsigned int)) );
+			fill_fluid<<<numBlocks, numThreads>>> (fpos_d, nfi_d, ymin, ymax, zmin, zmax, dmin_d, dmax_d, eps, dr, lock_f);
+			CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
+			nfluid += nfi;
+				
+		}
+
+		else if(opt==2){ // fluid based on geometry
+			// get seed point
+			float spos[3];
+			cout << "Please specify a seed point." << endl;
+			cout << "x, y, z = ";
+			cin >> spos[0] >> spos[1] >> spos[2];
+
+			// initialize geometry if first run
+			if(firstfgeom){
+				firstfgeom = false;
+
+				cudaFree(norm_d  );
+				cudaFree(pos_d   );
+				cudaFree(ep_d    );
+
+				// if coarse grid for geometry is available read it
+				if(bcoarse){
+					// read header
+					for (int i=0; i<20; i++){
+						float dum;
+						stl_file.read((char *)&dum, sizeof(float));
+					}
+					// get number of facets
+					stl_file.read((char *)&num_of_facets, sizeof(int));
+					cout << "Reading " << num_of_facets << " facets of coarse geometry ...";
+
+					// define variables
+					pos.clear();
+					norm.clear();
+					epv.clear();
+					ddum.clear();
+					idum.clear();
+					for(int i=0;i<3;i++){
+						ddum.push_back(0.);
+						idum.push_back(0);
+					}
+
+					// read data
+					through = 0;
+					while ((through < num_of_facets) & (!stl_file.eof()))
+					{
+						for (int i=0; i<12; i++)
+						{
+							stl_file.read((char *)&m_v_floats[i], sizeof(float));
+						}
+						for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i];
+						norm.push_back(ddum);
+						for(int j=0;j<3;j++){
+							for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
+							int k = 0;
+							bool found = false;
+							for(it = pos.begin(); it < pos.end(); it++){
+								float diff = 0;
+								for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
+								diff = sqrt(diff);
+								if(diff < 1e-5*dr){
+									idum[j] = k;
+									found = true;
+									break;
+								}
+								k++;
+							}
+							if(!found){
+								pos.push_back(ddum);
+								idum[j] = k;
+							}
+						}
+						epv.push_back(idum);
+						stl_file.read((char *)&attribute, sizeof(short));
+						through++;
+					}
+					stl_file.close();
+					if(num_of_facets != norm.size()){
+						cout << " [FAILED]" << endl;
+						return READ_ERROR;
+					}
+					nvert = pos.size();
+					nbe   = norm.size();
+					delete [] norma;
+					delete [] posa;
+					delete [] ep;
+					//create and copy vectors to arrays
+					norma = new uf4   [nbe];
+					posa  = new uf4   [nvert+nbe];
+					ep    = new ui4   [nbe];
+					for(unsigned int i=0; i<max(nvert,nbe); i++){
+						if(i<nbe){
+							for(int j=0; j<3; j++){
+								norma[i].a[j] = norm[i][j];
+								ep[i].a[j] = epv[i][j];
+							}
+						}
+						if(i<nvert){
+							for(int j=0; j<3; j++)
+								posa[i].a[j] = pos[i][j];
+						}
+					}
+					pos.clear();
+					ep.clear();
+					norm.clear();
+				}
+
+				// read fluid geometry
+				// read header
+				for (int i=0; i<20; i++){
+				float dum;
+				fstl_file.read((char *)&dum, sizeof(float));
+				}
+				// get number of facets
+				fstl_file.read((char *)&num_of_facets, sizeof(int));
+				cout << "Reading " << num_of_facets << " facets of fluid geometry ...";
+
+				// define variables
+				pos.clear();
+				norm.clear();
+				epv.clear();
+				ddum.clear();
+				idum.clear();
+				for(int i=0;i<3;i++){
+					ddum.push_back(0.);
+					idum.push_back(0);
+				}
+
+				// read data
+				through = 0;
+				while ((through < num_of_facets) & (!fstl_file.eof()))
+				{
+					for (int i=0; i<12; i++){
+						fstl_file.read((char *)&m_v_floats[i], sizeof(float));
+					}
+					for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i];
+					norm.push_back(ddum);
+					for(int j=0;j<3;j++){
+						for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
+						int k = 0;
+						bool found = false;
+						for(it = pos.begin(); it < pos.end(); it++){
+							float diff = 0;
+							for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
+							diff = sqrt(diff);
+							if(diff < 1e-5*dr){
+								idum[j] = k;
+								found = true;
+								break;
+							}
+							k++;
+						}
+						if(!found){
+							pos.push_back(ddum);
+							idum[j] = k;
+						}
+					}
+					epv.push_back(idum);
+					fstl_file.read((char *)&attribute, sizeof(short));
+					through++;
+				}
+				fstl_file.close();
+				if(num_of_facets != norm.size()){
+					cout << " [FAILED]" << endl;
+					return READ_ERROR;
+				}
+				cnvert = pos.size();
+				cnbe   = norm.size();
+				//create and copy vectors to arrays
+				cnorma = new uf4   [nbe];
+				cposa  = new uf4   [nvert];
+				cep    = new ui4   [nbe];
+				for(unsigned int i=0; i<max(nbe,nvert); i++){
+					if(i<nbe){
+						cnorma[i] = norma[i];
+						cep   [i] = ep   [i];
+					}
+					if(i<nvert){
+						cposa [i] = posa [i];
+					}
+				}
+				delete [] norma;
+				delete [] posa;
+				delete [] ep;
+				norma = new uf4   [nbe+cnbe];
+				posa  = new uf4   [nvert+cnvert];
+				ep    = new ui4   [nbe+cnbe];
+				for(unsigned int i=0; i<max(nbe,nvert); i++){
+					if(i<nbe){
+						norma[i] = cnorma[i];
+						ep   [i] = cep   [i];
+					}
+					if(i<nvert){
+						posa [i] = cposa [i];
+					}
+				}
+				delete [] cnorma;
+				delete [] cposa;
+				delete [] cep;
+				for(unsigned int i=0; i<max(cnvert,cnbe); i++){
+					if(i<cnbe){
+						for(int j=0; j<3; j++){
+							norma[i+nbe].a[j] = norm[i][j];
+							ep[i+nbe].a[j] = epv[i][j];
+						}
+					}
+					if(i<cnvert){
+						for(int j=0; j<3; j++)
+							posa[i+nvert].a[j] = pos[i][j];
+					}
+				}
+				nvert += cnvert;
+				nbe += cnbe;
+				pos.clear();
+				ep.clear();
+				norm.clear();
+				CUDA_SAFE_CALL( cudaMalloc((void **) &norm_d,   nbe*sizeof(uf4)) );
+				CUDA_SAFE_CALL( cudaMalloc((void **) &pos_d , nvert*sizeof(uf4)) );
+				CUDA_SAFE_CALL( cudaMalloc((void **) &ep_d  ,   nbe*sizeof(if4)) );
+				CUDA_SAFE_CALL( cudaMemcpy((void *) norm_d, (void *) norma,   nbe*sizeof(uf4), cudaMemcpyHostToDevice) );
+				CUDA_SAFE_CALL( cudaMemcpy((void *) pos_d , (void *) posa , nvert*sizeof(uf4), cudaMemcpyHostToDevice) );
+				CUDA_SAFE_CALL( cudaMemcpy((void *) ep_d  , (void *) ep   ,   nbe*sizeof(if4), cudaMemcpyHostToDevice) );
+			}
 		}
 
 		cont = 'n';
@@ -470,13 +728,18 @@ int crixus_main(int argc, char** argv){
 			break;
 		do{
 			if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
-			cout << "Another fluid box (y/n): ";
+			cout << "Another fluid container (y/n): ";
 			cin >> cont;
 			if(cont=='n') set = false;
 		}while(cont!='y' && cont!='n');
 	}
+	CUDA_SAFE_CALL( cudaMemcpy((void *) fpos, (void *) fpos_d, maxf*sizeof(unsigned int), cudaMemcpyDeviceToHost) );
 	cout << "\nCreation of " << nfluid << " fluid particles completed. [OK]" << endl;
+	cudaFree( fpos_d );
 	cudaFree( nfib_d );
+	cudaFree(norm_d  );
+	cudaFree(pos_d   );
+	cudaFree(ep_d    );
 
 	//prepare output structure for particles
 	cout << "Creating and initializing of output buffer of particles ...";
@@ -488,14 +751,24 @@ int crixus_main(int argc, char** argv){
 #endif
 	buf = new OutBuf[nelem];
 	int k=0;
+	unsigned int m,n,imin[3];
+	imin[0] = ceil((dmax.a[0]-dmin.a[0])/dr);
+	imin[1] = ceil((dmax.a[1]-dmin.a[1])/dr);
+	imin[2] = ceil((dmax.a[2]-dmin.a[2])/dr);
 	//fluid particles
-	for(unsigned int j=0; j<nfbox; j++){
-		for(unsigned int i=0; i<nfluid_in_box[j]; i++){
-			if(fpos[j][i].a[0] < -1e9)
-				continue;
-			buf[k].x = fpos[j][i].a[0];
-			buf[k].y = fpos[j][i].a[1];
-			buf[k].z = fpos[j][i].a[2];
+	for(unsigned int j=0; j<maxfn; j++){
+		int i = j/8;
+		int l = j%8;
+		m = 1;
+		m << l;
+		if(fpos[i] | m){
+			m = maxfn/(imin[1]*imin[2]);
+			buf[k].x = dmin.a[0]+dr*m;
+			n = maxfn - m*(imin[1]*imin[2]);
+			m = n/imin[2];
+			buf[k].y = dmin.a[1]+dr*m;
+			m = n - m*imin[2];
+			buf[k].z = dmin.a[2]+dr*m;
 			buf[k].nx = 0.;
 			buf[k].ny = 0.;
 			buf[k].nz = 0.;
@@ -581,7 +854,6 @@ int crixus_main(int argc, char** argv){
 	cout << " [OK]" << endl;
 
 	//Output of particles
-	int flen = strlen(argv[1]);
 	char *fname = new char[flen+5];
 	const char *fend = "h5sph";
 	float time = 0.;

@@ -481,28 +481,77 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 	}
 }
 
-__global__ void fill_fluid (uf4 *fpos, float xmin, float xmax, float ymin, float ymax, float zmin, float zmax, float eps, float dr, int *nfib, int fmax, Lock lock)
+__global__ void fill_fluid (uf4 *fpos, float *nfi, float ymin, float ymax, float zmin, float zmax, uf4 *min, uf4 *dmax, float eps, float dr, Lock lock);
 {
 	//this can be a bit more complex in order to fill complex geometries
 	__shared__ int nfib_cache[threadsPerBlock];
-	int idim = (floor((ymax+eps-ymin)/dr)+1)*(floor((xmax+eps-xmin)/dr)+1);
-	int jdim =  floor((xmax+eps-xmin)/dr)+1;
+	//dim local
+	int idim =  floor((xmax+eps-xmin)/dr)+1;
+	int jdim =  floor((ymax+eps-ymin)/dr)+1;
+	int kdim =  floor((zmax+eps-zmin)/dr)+1;
+	//dim global
+	int idimg = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr+1));
+	int jdimg = int(floor((dmax.a[1]-dmin.a[1]+eps)/dr+1));
+	int kdimg = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr+1));
+	//min indices
+	int imin = floor(((float)idimg)*(xmin-dmin.a[0])/(dmax.a[0]-dmin.a[0])+eps);
+	int jmin = floor(((float)jdimg)*(ymin-dmin.a[1])/(dmax.a[1]-dmin.a[1])+eps);
+	int kmin = floor(((float)kdimg)*(zmin-dmin.a[2])/(dmax.a[2]-dmin.a[2])+eps);
+	//offset
+	int iboff = sizeof(unsigned int) - (imin + jmin*idimg + kmin*idimg*jdimg)%sizeof(unsigned int);
 	int i, j, k, tmp, nfib_tmp;
 	int tid = threadIdx.x;
 
 	nfib_tmp = 0;
-	int id = blockIdx.x*blockDim.x+threadIdx.x;
-	while(id<fmax){
-		k = id/idim;
-		tmp = id%idim;
-		j = tmp/jdim;
-		i = tmp%jdim;
-		fpos[id].a[0] = xmin + (float)i*dr;
-		fpos[id].a[1] = ymin + (float)j*dr;
-		fpos[id].a[2] = zmin + (float)k*dr;
-		nfib_tmp++;
-		//if position should not be filled use a[0] = -1e10 and do not increment nfib_tmp
-		id += blockDim.x*gridDim.x;
+	int id = sizeof(unsigned int)*(blockIdx.x*blockDim.x+threadIdx.x)+iboff;
+	if(threadIdx.x==0 && blockIdx.x==0){
+		//handle offset
+		for(int ii=0; ii<iboff; i++){
+			k = ii/(idim*jdim);
+			tmp = ii%(idim*jdim);
+			j = tmp/idim;
+			i = tmp%idim;
+			if(i<=idim && j<=jdim && k<=kdim){
+				i += imin;
+				j += jmin;
+				k += kmin;
+				int ind = i + j*idimg + k*idimg*jdimg;
+				// in theory inda is constant during the ii loop //TODO this is not correct now
+				int inda = ind/sizeof(unsigned int);
+				int indb = ind%sizeof(unsigned int);
+				unsigned int b = 1<<indb;
+				fpos[inda] = fpos[inda] & b;
+				nfib_tmp++;
+			}
+			else{
+				break;
+			}
+		}
+	}
+	while(id<fmax){//TODO make correct
+		for(int ii=0; ii<sizeof(unsigned int); ii++){
+			k = id/(idim*jdim);
+			tmp = id%(idim*jdim);
+			j = tmp/idim;
+			i = tmp%idim;
+			if(i<=idim && j<=jdim && k<=kdim){
+				i += imin;
+				j += jmin;
+				k += kmin;
+				int ind = i + j*idimg + k*idimg*jdimg;
+				// in theory inda is constant during the ii loop
+				int inda = ind/sizeof(unsigned int);
+				int indb = ind%sizeof(unsigned int);
+				unsigned int b = 1<<indb;
+				fpos[inda] = fpos[inda] & b;
+				nfib_tmp++;
+				id++;
+			}
+			else{
+				break;
+			}
+		}
+		id += (blockDim.x*gridDim.x-1)*sizeof(unsigned int);
 	}
 	nfib_cache[tid] = nfib_tmp;
 
