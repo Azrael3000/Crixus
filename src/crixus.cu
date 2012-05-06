@@ -61,7 +61,6 @@ int crixus_main(int argc, char** argv){
 	//looking for cuda devices without timeout
 	cout << "Selecting GPU ...";
 	int dcount, maxblock, maxthread;
-	size_t globMemSize;
 	maxthread = threadsPerBlock;
 	bool found = false;
 	CUDA_SAFE_CALL( cudaGetDeviceCount(&dcount) );
@@ -73,7 +72,6 @@ int crixus_main(int argc, char** argv){
 			CUDA_SAFE_CALL( cudaSetDevice(i) );
 			maxthread = prop.maxThreadsPerBlock;
 			maxblock  = prop.maxGridSize[0];
-			globMemSize = prop.totalGlobalMem;
 			cout << " Id: " << i << " (" << maxthread << ", " << maxblock << ") ...";
 			if(maxthread < threadsPerBlock){
 				cout << " [FAILED]" << endl;
@@ -412,7 +410,7 @@ int crixus_main(int argc, char** argv){
 	cfname[flen+1] = 's';
 	cfname[flen+2] = 'e';
 	strncpy(cfname+flen+3, argv[1]+flen-4, 4);
-	stl_file (cfname, ios::in | ios::binary); //no check is done whether or not the file is actually binary or not
+	stl_file.open(cfname, ios::in | ios::binary); //no check is done whether or not the file is actually binary or not
 	if(!stl_file.is_open()){
 		bcoarse = false;
 		cout << " [NO]" << endl;
@@ -453,7 +451,8 @@ int crixus_main(int argc, char** argv){
 	unsigned int nfbox = 0;
 	unsigned int maxf = 0, maxfn;
 	int opt;
-	unsigned int *fpos;
+	unsigned int *fpos, *fpos_d;
+  unsigned int *nfi_d;
 	maxfn = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr+1)*floor((dmax.a[1]-dmin.a[1]+eps)/dr+1)*floor((dmax.a[2]-dmin.a[2]+eps)/dr+1));
 	maxf = int(ceil(float(maxfn)/8./float(sizeof(unsigned int))));
 	fpos = new unsigned int [maxf];
@@ -466,7 +465,7 @@ int crixus_main(int argc, char** argv){
 			cout << " 1 ... Fluid in a box" << endl;
 			cout << " 2 ... Fluid based on geometry" << endl;
 			cout << "Input: ";
-			opt = 0
+			opt = 0;
 			cin >> opt;
 			while(opt<1 || opt>2){
 				cout << "Wrong input try again: ";
@@ -495,9 +494,8 @@ int crixus_main(int argc, char** argv){
 
 			Lock lock_f;
 			unsigned int nfi;
-			unsigned int *nfi_d;
 			CUDA_SAFE_CALL( cudaMalloc((void **) &nfi_d, sizeof(unsigned int)) );
-			fill_fluid<<<numBlocks, numThreads>>> (fpos_d, nfi_d, ymin, ymax, zmin, zmax, dmin_d, dmax_d, eps, dr, lock_f);
+			fill_fluid<<<numBlocks, numThreads>>> (fpos_d, nfi_d, xmin, xmax, ymin, ymax, zmin, zmax, dmin_d, dmax_d, eps, dr, lock_f);
 			CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
 			nfluid += nfi;
 				
@@ -601,7 +599,7 @@ int crixus_main(int argc, char** argv){
 						}
 					}
 					pos.clear();
-					ep.clear();
+          epv.clear();
 					norm.clear();
 				}
 
@@ -712,14 +710,14 @@ int crixus_main(int argc, char** argv){
 				nvert += cnvert;
 				nbe += cnbe;
 				pos.clear();
-				ep.clear();
+				epv.clear();
 				norm.clear();
 				CUDA_SAFE_CALL( cudaMalloc((void **) &norm_d,   nbe*sizeof(uf4)) );
 				CUDA_SAFE_CALL( cudaMalloc((void **) &pos_d , nvert*sizeof(uf4)) );
-				CUDA_SAFE_CALL( cudaMalloc((void **) &ep_d  ,   nbe*sizeof(if4)) );
+				CUDA_SAFE_CALL( cudaMalloc((void **) &ep_d  ,   nbe*sizeof(ui4)) );
 				CUDA_SAFE_CALL( cudaMemcpy((void *) norm_d, (void *) norma,   nbe*sizeof(uf4), cudaMemcpyHostToDevice) );
 				CUDA_SAFE_CALL( cudaMemcpy((void *) pos_d , (void *) posa , nvert*sizeof(uf4), cudaMemcpyHostToDevice) );
-				CUDA_SAFE_CALL( cudaMemcpy((void *) ep_d  , (void *) ep   ,   nbe*sizeof(if4), cudaMemcpyHostToDevice) );
+				CUDA_SAFE_CALL( cudaMemcpy((void *) ep_d  , (void *) ep   ,   nbe*sizeof(ui4), cudaMemcpyHostToDevice) );
 			}
 		}
 
@@ -736,7 +734,7 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) fpos, (void *) fpos_d, maxf*sizeof(unsigned int), cudaMemcpyDeviceToHost) );
 	cout << "\nCreation of " << nfluid << " fluid particles completed. [OK]" << endl;
 	cudaFree( fpos_d );
-	cudaFree( nfib_d );
+	cudaFree( nfi_d );
 	cudaFree(norm_d  );
 	cudaFree(pos_d   );
 	cudaFree(ep_d    );
@@ -752,6 +750,7 @@ int crixus_main(int argc, char** argv){
 	buf = new OutBuf[nelem];
 	int k=0;
 	unsigned int m,n,imin[3];
+  float fluid_vol = pow(dr,3);
 	imin[0] = ceil((dmax.a[0]-dmin.a[0])/dr);
 	imin[1] = ceil((dmax.a[1]-dmin.a[1])/dr);
 	imin[2] = ceil((dmax.a[2]-dmin.a[2])/dr);
@@ -759,8 +758,7 @@ int crixus_main(int argc, char** argv){
 	for(unsigned int j=0; j<maxfn; j++){
 		int i = j/8;
 		int l = j%8;
-		m = 1;
-		m << l;
+		m = 1 << l;
 		if(fpos[i] | m){
 			m = maxfn/(imin[1]*imin[2]);
 			buf[k].x = dmin.a[0]+dr*m;
@@ -877,11 +875,8 @@ int crixus_main(int argc, char** argv){
 	delete [] vola;
 	delete [] surf;
 	delete [] ep;
-	delete [] nfluid_in_box;
 	delete [] buf;
 	delete [] fname;
-	for(unsigned int i=0; i<nfbox; i++)
-		delete [] fpos[i];
 	delete [] fpos;
 	//Cuda
 	cudaFree( per_d   );

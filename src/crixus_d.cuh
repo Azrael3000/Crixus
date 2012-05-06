@@ -39,7 +39,7 @@ __global__ void init_gpoints (uf4*, ui4*, float*, uf4*, uf4*, float*, float*, in
 
 __global__ void lobato_gpoints (uf4 *pos, ui4 *ep, float *surf, uf4 *norm, uf4 *gpos, float *gam, float *ggam, int *iggam, uf4 *dmin, uf4 *dmax, bool *per, int ngridp, float dr, float hdr, int iker, float eps, int nvert, int nbe, float krad, float seed, int *nrggam, Lock lock, float *deb, int *ilock);
 
-__global__ void fill_fluid (uf4*, float, float, float, float, float, float, float, float, int*, int, Lock);
+__global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, float xmax, float ymin, float ymax, float zmin, float zmax, uf4 *min, uf4 *dmax, float eps, float dr, Lock lock);
 
 __device__ void gpu_sync (int*, int*);
 
