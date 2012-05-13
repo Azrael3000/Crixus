@@ -1,0 +1,45 @@
+# The name of the project.
+project(Crixus)
+
+# release or debug mode
+#set(CMAKE_BUILD_TYPE "Release")
+set(CMAKE_BUILD_TYPE "Debug")
+
+# build path
+set(EXECUTABLE_OUTPUT_PATH bin/${CMAKE_BUILD_TYPE})
+set(ENV{HDF5_ROOT} "/home/arnom/software/shdf5")
+
+# CMake Minimum verion required. 
+# FindCUDA script is distributed since version 2.8
+cmake_minimum_required(VERSION 2.8)
+
+# Search packages.
+find_package(CUDA REQUIRED)
+find_package(Threads REQUIRED)
+find_package(GLUT REQUIRED)
+find_package(OpenGL REQUIRED)
+find_package(HDF5 REQUIRED)
+
+# cuda sdk path
+set(CUDA_SDK_ROOT_DIR "/home/kassiotis/NVIDIA_GPU_Computing_SDK")
+
+# set compilation options
+set(CUDA_NVCC_FLAGS "-arch=sm_20")
+
+include_directories (${CUDA_INCLUDE_DIRS}) 
+
+# when compiling with cuda
+link_libraries("-L${CUDA_SDK_ROOT_DIR}/C/lib -lcutil_x86_64")
+
+# Add source directory to project.
+add_subdirectory(src)
+
+#Always compile Sphynx and SphynxClient
+add_executable(
+  Crixus
+  src/crixus.cpp
+)
+
+target_link_libraries(
+  Crixus Core ${HDF5_LIBRARIES} cuCore
+)
