@@ -104,7 +104,7 @@ __global__ void find_links(uf4 *pos, int nvert, uf4 *dmax, uf4 *dmin, float dr, 
 {
 	int i = blockIdx.x*blockDim.x+threadIdx.x;
 	while(i<nvert){
-		if(fabs(pos[i].a[idim]-(*dmax).a[idim])<1e-5*dr){
+		if(fabs(pos[i].a[idim]-(*dmax).a[idim])<1e-4*dr){
 			for(unsigned int j=0; j<nvert; j++){
 				if(j==i) continue;
 				if(sqrt(pow(pos[i].a[(idim+1)%3]-pos[j].a[(idim+1)%3],(float)2.)+ \
@@ -274,7 +274,10 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 				}
 				if((int)(edgen[k].a[3]+eps)==2){ //cross product to determine normal of wall
 					float tmpvec[3], edge[3];
-					for(unsigned int n=0; n<3; n++) edge[n] = pos[tri[k][0]].a[n] - pos[tri[k][1]].a[n];
+					for(unsigned int n=0; n<3; n++){
+            edge[n] = pos[tri[k][0]].a[n] - pos[tri[k][1]].a[n];
+            if(per[n]&&fabs(edge[n])>2*dr)	edge[n] += sgn(edge[n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
+          }
 					for(unsigned int n=0; n<3; n++)	tmpvec[n] = edgen[k].a[(n+1)%3]*edge[(n+2)%3]-edgen[k].a[(n+2)%3]*edge[(n+1)%3];
 					for(unsigned int n=0; n<3; n++) edgen[k].a[n] = tmpvec[n];
 				}

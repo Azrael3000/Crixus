@@ -14,7 +14,6 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
-#include <hdf5.h>
 #include <cuda.h>
 #include "cuda_local.cuh"
 #include "crixus.h"
@@ -299,7 +298,7 @@ int crixus_main(int argc, char** argv){
 	}
 	cout << endl;
 
-	//calculate volume of vertex particles
+  //periodicity
 	uf4 dmin = {xmin,ymin,zmin,0.};
 	uf4 dmax = {xmax,ymax,zmax,0.};
 	bool per[3] = {false, false, false};
@@ -345,7 +344,9 @@ int crixus_main(int argc, char** argv){
 		}
 	}
 	CUDA_SAFE_CALL( cudaFree(newlink) );
+  delete [] newlink_h;
 
+	//calculate volume of vertex particles
 	cout << "\nCalculating volume of vertex particles ...";
 	float eps=dr/(float)gres*1e-4;
 	int *trisize, *trisize_h;
@@ -784,11 +785,18 @@ int crixus_main(int argc, char** argv){
 		}
 	}
 	//vertex particles
+  int *nvshift;
+  nvshift = new int[nvert];
+  for(unsigned int i=0; i<nvert; i++)
+    nvshift[i] = 0;
+  int ishift = 0;
 	for(unsigned int i=0; i<nvert; i++){
 		if(posa[i].a[0] < -1e9){
 			nelem--;
+      ishift++;
 			continue;
 		}
+    nvshift[i] = ishift;
 		buf[k].x = posa[i].a[0];
 		buf[k].y = posa[i].a[1];
 		buf[k].z = posa[i].a[2];
@@ -822,9 +830,9 @@ int crixus_main(int argc, char** argv){
 		buf[k].kent = 1;
 		buf[k].kparmob = 0;
 		buf[k].iref = k;
-		buf[k].ep1 = nfluid+ep[i-nvert].a[0]; //AM-TODO: maybe + 1 as indices in fortran start with 1
-		buf[k].ep2 = nfluid+ep[i-nvert].a[1];
-		buf[k].ep3 = nfluid+ep[i-nvert].a[2];
+		buf[k].ep1 = nfluid+ep[i-nvert].a[0] - nvshift[ep[i-nvert].a[0]];
+		buf[k].ep2 = nfluid+ep[i-nvert].a[1] - nvshift[ep[i-nvert].a[1]];
+		buf[k].ep3 = nfluid+ep[i-nvert].a[2] - nvshift[ep[i-nvert].a[2]];
 		k++;
 	}
 #ifdef bdebug
@@ -886,55 +894,4 @@ int crixus_main(int argc, char** argv){
 	//End
 	return 0;
 }
-
-int hdf5_output (OutBuf *buf, int len, const char *filename, float *timevalue){
-	hid_t		mem_type_id, loc_id, dataset_id, file_space_id, mem_space_id, xfer_plist_id;
-	hsize_t	count[1], offset[1], dim[] = {len};
-	herr_t	status;
-
-	xfer_plist_id = H5Pcreate(H5P_FILE_ACCESS);
-	loc_id = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, xfer_plist_id);
-	H5Pclose(xfer_plist_id);
-	file_space_id = H5Screate_simple(1, dim, NULL);
-	mem_type_id = H5Tcreate(H5T_COMPOUND, sizeof(OutBuf));
-
-	H5Tinsert(mem_type_id, "Coords_0"       , HOFFSET(OutBuf, x),       H5T_NATIVE_FLOAT);
-	H5Tinsert(mem_type_id, "Coords_1"       , HOFFSET(OutBuf, y),       H5T_NATIVE_FLOAT);
-	H5Tinsert(mem_type_id, "Coords_2"       , HOFFSET(OutBuf, z),       H5T_NATIVE_FLOAT);
-	H5Tinsert(mem_type_id, "Normal_0"       , HOFFSET(OutBuf, nx),      H5T_NATIVE_FLOAT);
-	H5Tinsert(mem_type_id, "Normal_1"       , HOFFSET(OutBuf, ny),      H5T_NATIVE_FLOAT);
-	H5Tinsert(mem_type_id, "Normal_2"       , HOFFSET(OutBuf, nz),      H5T_NATIVE_FLOAT);
-	H5Tinsert(mem_type_id, "Volume"         , HOFFSET(OutBuf, vol),     H5T_NATIVE_FLOAT);
-	H5Tinsert(mem_type_id, "Surface"        , HOFFSET(OutBuf, surf),    H5T_NATIVE_FLOAT);
-	H5Tinsert(mem_type_id, "ParticleType"   , HOFFSET(OutBuf, kpar),    H5T_NATIVE_INT);
-	H5Tinsert(mem_type_id, "FluidType"      , HOFFSET(OutBuf, kfluid),  H5T_NATIVE_INT);
-	H5Tinsert(mem_type_id, "KENT"           , HOFFSET(OutBuf, kent),    H5T_NATIVE_INT);
-	H5Tinsert(mem_type_id, "MovingBoundary" , HOFFSET(OutBuf, kparmob), H5T_NATIVE_INT);
-	H5Tinsert(mem_type_id, "AbsoluteIndex"  , HOFFSET(OutBuf, iref),    H5T_NATIVE_INT);
-	H5Tinsert(mem_type_id, "VertexParticle1", HOFFSET(OutBuf, ep1),     H5T_NATIVE_INT);
-	H5Tinsert(mem_type_id, "VertexParticle2", HOFFSET(OutBuf, ep2),     H5T_NATIVE_INT);
-	H5Tinsert(mem_type_id, "VertexParticle3", HOFFSET(OutBuf, ep3),     H5T_NATIVE_INT);
-
-	dataset_id = H5Dcreate(loc_id, DATASETNAME, mem_type_id, file_space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-	H5Sclose(file_space_id);
-
-	count[0] = len;
-	offset[0] = 0;
-	mem_space_id = H5Screate_simple(1, count, NULL);
-	file_space_id = H5Dget_space(dataset_id);
-	H5Sselect_hyperslab(file_space_id, H5S_SELECT_SET, offset, NULL, count, NULL);
-	xfer_plist_id = H5Pcreate(H5P_DATASET_XFER);
-	status = H5Dwrite(dataset_id, mem_type_id, mem_space_id, file_space_id, xfer_plist_id, buf);
-	if(status < 0) return status;
-
-	H5Dclose(dataset_id);
-	H5Sclose(file_space_id);
-	H5Sclose(mem_space_id);
-	H5Pclose(xfer_plist_id);
-	H5Fclose(loc_id);
-	H5Tclose(mem_type_id);
-
-	return 0;
-}
-
 #endif
