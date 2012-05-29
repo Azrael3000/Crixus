@@ -524,7 +524,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 				int inda = ind/sizeof(unsigned int);
 				int indb = ind%sizeof(unsigned int);
 				unsigned int b = 1<<indb;
-				fpos[inda] = fpos[inda] & b;
+				fpos[inda] = fpos[inda] | b;
 				nfi_tmp++;
 			}
 			else{
@@ -549,7 +549,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 				int inda = ind/sizeof(unsigned int);
 				int indb = ind%sizeof(unsigned int);
 				unsigned int b = 1<<indb;
-				fpos[inda] = fpos[inda] & b;
+				fpos[inda] = fpos[inda] | b;
 				nfi_tmp++;
 				id++;
 			}

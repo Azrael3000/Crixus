@@ -454,6 +454,11 @@ int crixus_main(int argc, char** argv){
 	int opt;
 	unsigned int *fpos, *fpos_d;
   unsigned int *nfi_d;
+
+	eps = 1e10;
+	for(unsigned int i=0; i<3; i++)
+		eps = max((dmax.a[i]-dmin.a[i])*1e-6,eps);
+
 	maxfn = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr+1)*floor((dmax.a[1]-dmin.a[1]+eps)/dr+1)*floor((dmax.a[2]-dmin.a[2]+eps)/dr+1));
 	maxf = int(ceil(float(maxfn)/8./float(sizeof(unsigned int))));
 	fpos = new unsigned int [maxf];
@@ -752,15 +757,15 @@ int crixus_main(int argc, char** argv){
 	int k=0;
 	unsigned int m,n,imin[3];
   float fluid_vol = pow(dr,3);
-	imin[0] = ceil((dmax.a[0]-dmin.a[0])/dr);
-	imin[1] = ceil((dmax.a[1]-dmin.a[1])/dr);
-	imin[2] = ceil((dmax.a[2]-dmin.a[2])/dr);
+	imin[0] = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr));
+	imin[1] = int(floor((dmax.a[1]-dmin.a[1]+eps)/dr));
+	imin[2] = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr));
 	//fluid particles
 	for(unsigned int j=0; j<maxfn; j++){
 		int i = j/8;
 		int l = j%8;
 		m = 1 << l;
-		if(fpos[i] | m){
+		if(fpos[i] & m){
 			m = maxfn/(imin[1]*imin[2]);
 			buf[k].x = dmin.a[0]+dr*m;
 			n = maxfn - m*(imin[1]*imin[2]);
