@@ -455,7 +455,7 @@ int crixus_main(int argc, char** argv){
 	unsigned int *fpos, *fpos_d;
   unsigned int *nfi_d;
 
-	eps = 1e10;
+	eps = 1e-10;
 	for(unsigned int i=0; i<3; i++)
 		eps = max((dmax.a[i]-dmin.a[i])*1e-6,eps);
 
@@ -463,6 +463,7 @@ int crixus_main(int argc, char** argv){
 	maxf = int(ceil(float(maxfn)/8./float(sizeof(unsigned int))));
 	fpos = new unsigned int [maxf];
 	CUDA_SAFE_CALL( cudaMalloc((void **) &fpos_d, maxf*sizeof(unsigned int)) );
+  CUDA_SAFE_CALL( cudaMalloc((void **) &nfi_d, sizeof(unsigned int)) );
 
 	while(set){
 		xmin = xmax = ymin = ymax = zmin = zmax = 0.;
@@ -500,7 +501,6 @@ int crixus_main(int argc, char** argv){
 
 			Lock lock_f;
 			unsigned int nfi;
-			CUDA_SAFE_CALL( cudaMalloc((void **) &nfi_d, sizeof(unsigned int)) );
 			fill_fluid<<<numBlocks, numThreads>>> (fpos_d, nfi_d, xmin, xmax, ymin, ymax, zmin, zmax, dmin_d, dmax_d, eps, dr, lock_f);
 			CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
 			nfluid += nfi;
@@ -760,6 +760,10 @@ int crixus_main(int argc, char** argv){
 	imin[0] = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr));
 	imin[1] = int(floor((dmax.a[1]-dmin.a[1]+eps)/dr));
 	imin[2] = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr));
+  cout << dmin.a[0] << " " << dmin.a[1] << " " << dmin.a[2] << endl;
+  cout << dmax.a[0] << " " << dmax.a[1] << " " << dmax.a[2] << endl;
+  cout << eps << " " << dr << endl;
+  cout << imin[0] << " " << imin[1] << " " << imin[2] << endl;
 	//fluid particles
 	for(unsigned int j=0; j<maxfn; j++){
 		int i = j/8;
