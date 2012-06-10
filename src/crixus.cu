@@ -399,7 +399,7 @@ int crixus_main(int argc, char** argv){
 	cout << "\nDefining fluid particles ..." << endl;
 
 	cout << "Checking wether coarse grid is available ...";
-	bool bcoarse;
+	bool bcoarse = false;
 	int flen = strlen(argv[1]);
 	char *cfname = new char[flen+7];
 	strncpy(cfname, argv[1], flen-4);
@@ -422,7 +422,7 @@ int crixus_main(int argc, char** argv){
 	}
 
 	cout << "Checking wether fluid geometry is available ...";
-	bool bfgeom;
+	bool bfgeom = false;
 	char *ffname = new char[flen+7];
 	strncpy(cfname, argv[1], flen-4);
 	cfname[flen-4] = '_';
@@ -461,9 +461,12 @@ int crixus_main(int argc, char** argv){
 
 	maxfn = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr+1)*floor((dmax.a[1]-dmin.a[1]+eps)/dr+1)*floor((dmax.a[2]-dmin.a[2]+eps)/dr+1));
 	maxf = int(ceil(float(maxfn)/8./float(sizeof(unsigned int))));
+  cout << maxf << " " << maxfn << "maxf,maxfn" << endl;
 	fpos = new unsigned int [maxf];
 	CUDA_SAFE_CALL( cudaMalloc((void **) &fpos_d, maxf*sizeof(unsigned int)) );
   CUDA_SAFE_CALL( cudaMalloc((void **) &nfi_d, sizeof(unsigned int)) );
+  for(int i=0; i<maxf; i++) fpos[i] = 0;
+  CUDA_SAFE_CALL( cudaMemcpy((void *) fpos_d, (void *) fpos, maxf*sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
 	while(set){
 		xmin = xmax = ymin = ymax = zmin = zmax = 0.;
@@ -766,10 +769,11 @@ int crixus_main(int argc, char** argv){
   cout << imin[0] << " " << imin[1] << " " << imin[2] << endl;
 	//fluid particles
 	for(unsigned int j=0; j<maxfn; j++){
-		int i = j/8;
-		int l = j%8;
+		int i = j/(8*sizeof(unsigned int));
+		int l = j%(8*sizeof(unsigned int));
 		m = 1 << l;
 		if(fpos[i] & m){
+cout << i << " " << l << " " << m << " "<< fpos[i] << " " << (fpos[i] & m) << endl;
 			m = maxfn/(imin[1]*imin[2]);
 			buf[k].x = dmin.a[0]+dr*m;
 			n = maxfn - m*(imin[1]*imin[2]);
@@ -790,6 +794,7 @@ int crixus_main(int argc, char** argv){
 			buf[k].ep1 = 0;
 			buf[k].ep2 = 0;
 			buf[k].ep3 = 0;
+      cout << "k:" << k << endl;
 			k++;
 		}
 	}

@@ -28,9 +28,6 @@ set(CUDA_NVCC_FLAGS "-arch=sm_20")
 
 include_directories (${CUDA_INCLUDE_DIRS}) 
 
-# when compiling with cuda
-link_libraries("-L${CUDA_SDK_ROOT_DIR}/C/lib -lcutil_x86_64")
-
 # Add source directory to project.
 add_subdirectory(src)
 
