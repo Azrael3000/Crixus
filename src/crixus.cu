@@ -416,7 +416,7 @@ int crixus_main(int argc, char** argv){
 	cfname[flen+1] = 's';
 	cfname[flen+2] = 'e';
 	strncpy(cfname+flen+3, argv[1]+flen-4, 4);
-	stl_file.open(cfname, ios::in | ios::binary);
+	stl_file.open(cfname, ios::in);
 	if(!stl_file.is_open()){
 		bcoarse = false;
 		cout << " [NO]" << endl;
