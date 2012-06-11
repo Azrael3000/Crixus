@@ -681,7 +681,7 @@ __device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, uf4 *v, float eps){
       i = ii;
     }
   }
-  int j = 0; k; // other indices (different from i)
+  int j = 0, k; // other indices (different from i)
   if(i==j)
     j = 1;
   k = 3 - (i+j);

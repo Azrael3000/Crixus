@@ -415,7 +415,7 @@ int crixus_main(int argc, char** argv){
 	cfname[flen+1] = 's';
 	cfname[flen+2] = 'e';
 	strncpy(cfname+flen+3, argv[1]+flen-4, 4);
-	stl_file.open(cfname, ios::in | ios::binary); //no check is done whether or not the file is actually binary or not
+	stl_file.open(cfname, ios::in | ios::binary);
 	if(!stl_file.is_open()){
 		bcoarse = false;
 		cout << " [NO]" << endl;
@@ -423,11 +423,32 @@ int crixus_main(int argc, char** argv){
 	else{
 		bcoarse = true;
 		cout << " [YES]" << endl;
+    cout << "Checking whether coarse geometry stl file is binary ...";
+    bool issolid = true;
+    char header[6] = "solid";
+    for (int i=0; i<5; i++){
+      char dum;
+      stl_file.read((char *)&dum, sizeof(char));
+      if(dum!=header[i]){
+        issolid = false;
+        break;
+      }
+    }
+    if(issolid){
+      cout << " [NO]" << endl;
+      stl_file.close();
+      bcoarse = false;
+    }
+    else{
+      cout << " [YES]" << endl;
+      // reopen file in binary mode
+      stl_file.open(cfname, ios::in | ios::binary);
+    }
+    stl_file.close();
 	}
 
 	cout << "Checking wether fluid geometry is available ...";
 	bool bfgeom = false;
-	char *ffname = new char[flen+7];
 	strncpy(cfname, argv[1], flen-4);
 	cfname[flen-4] = '_';
 	cfname[flen-3] = 'f';
@@ -437,7 +458,8 @@ int crixus_main(int argc, char** argv){
 	cfname[flen+1] = 'p';
 	cfname[flen+2] = 'e';
 	strncpy(cfname+flen+3, argv[1]+flen-4, 4);
-	ifstream fstl_file (ffname, ios::in | ios::binary); //no check is done whether or not the file is actually binary or not
+
+	ifstream fstl_file (cfname, ios::in);
 	if(!fstl_file.is_open()){
 		bfgeom = false;
 		cout << " [NO]" << endl;
@@ -445,6 +467,28 @@ int crixus_main(int argc, char** argv){
 	else{
 		bfgeom = true;
 		cout << " [YES]" << endl;
+    cout << "Checking whether fluid geometry stl file is binary ...";
+    bool issolid = true;
+    char header[6] = "solid";
+    for (int i=0; i<5; i++){
+      char dum;
+      fstl_file.read((char *)&dum, sizeof(char));
+      if(dum!=header[i]){
+        issolid = false;
+        break;
+      }
+    }
+    if(issolid){
+      cout << " [NO]" << endl;
+      fstl_file.close();
+      bfgeom = false;
+    }
+    else{
+      cout << " [YES]" << endl;
+      // reopen file in binary mode
+      fstl_file.open(cfname, ios::in | ios::binary);
+    }
+    fstl_file.close();
 	}
 
 	bool set = true;
@@ -524,11 +568,11 @@ int crixus_main(int argc, char** argv){
       int ispos = (int)floor((spos[0]-dmin.a[0]+eps)/dr);
       int jspos = (int)floor((spos[1]-dmin.a[1]+eps)/dr);
       int kspos = (int)floor((spos[2]-dmin.a[2]+eps)/dr);
-      int idimg = (int)floor(((*dmax).a[0]-(*dmin).a[0]+eps)/dr+1);
-      int jdimg = (int)floor(((*dmax).a[1]-(*dmin).a[1]+eps)/dr+1);
+      int idimg = (int)floor((dmax.a[0]-dmin.a[0]+eps)/dr+1);
+      int jdimg = (int)floor((dmax.a[1]-dmin.a[1]+eps)/dr+1);
       int sInd = ispos + jspos*idimg + kspos*idimg*jdimg;
-      int sIndex = sInd/(8*sizeof(unsigned Int));
-      unsigned int bit = 1<<(sInd%(8*sizeof(unsigned Int)));
+      int sIndex = sInd/(8*sizeof(unsigned int));
+      unsigned int sBit = 1<<(sInd%(8*sizeof(unsigned int)));
 
 			// initialize geometry if first run
 			if(firstfgeom){
