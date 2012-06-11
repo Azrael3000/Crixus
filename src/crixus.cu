@@ -47,6 +47,7 @@ int crixus_main(int argc, char** argv){
 	unsigned int through;
 	short attribute;
 	unsigned int num_of_facets;
+  unsigned int bitPerUint = 8*sizeof(unsigned int);
 
   if(argc==1){
 		cout << "No file specified." << endl;
@@ -434,9 +435,9 @@ int crixus_main(int argc, char** argv){
         break;
       }
     }
+    stl_file.close();
     if(issolid){
       cout << " [NO]" << endl;
-      stl_file.close();
       bcoarse = false;
     }
     else{
@@ -444,7 +445,6 @@ int crixus_main(int argc, char** argv){
       // reopen file in binary mode
       stl_file.open(cfname, ios::in | ios::binary);
     }
-    stl_file.close();
 	}
 
 	cout << "Checking wether fluid geometry is available ...";
@@ -478,9 +478,9 @@ int crixus_main(int argc, char** argv){
         break;
       }
     }
+    fstl_file.close();
     if(issolid){
       cout << " [NO]" << endl;
-      fstl_file.close();
       bfgeom = false;
     }
     else{
@@ -488,7 +488,6 @@ int crixus_main(int argc, char** argv){
       // reopen file in binary mode
       fstl_file.open(cfname, ios::in | ios::binary);
     }
-    fstl_file.close();
 	}
 
 	bool set = true;
@@ -535,6 +534,11 @@ int crixus_main(int argc, char** argv){
 			opt = 1;
 		}
 
+    // data for geometry bounding grid and fluid bounding grid
+    int fnvert, fnbe;
+    uf4 *fposa, *fnorma;
+    ui4 *fep;
+
 		if(opt==1){ // fluid based on rectangular box
 			cout << "Enter dimensions of fluid box:" << endl;
 			cout << "xmin, xmax: ";
@@ -571,8 +575,8 @@ int crixus_main(int argc, char** argv){
       int idimg = (int)floor((dmax.a[0]-dmin.a[0]+eps)/dr+1);
       int jdimg = (int)floor((dmax.a[1]-dmin.a[1]+eps)/dr+1);
       int sInd = ispos + jspos*idimg + kspos*idimg*jdimg;
-      int sIndex = sInd/(8*sizeof(unsigned int));
-      unsigned int sBit = 1<<(sInd%(8*sizeof(unsigned int)));
+      int sIndex = sInd/bitPerUint;
+      unsigned int sBit = 1<<(sInd%bitPerUint);
 
 			// initialize geometry if first run
 			if(firstfgeom){
@@ -643,31 +647,45 @@ int crixus_main(int argc, char** argv){
 						cout << " [FAILED]" << endl;
 						return READ_ERROR;
 					}
-					nvert = pos.size();
-					nbe   = norm.size();
-					delete [] norma;
-					delete [] posa;
-					delete [] ep;
+					fnvert = pos.size();
+					fnbe   = norm.size();
 					//create and copy vectors to arrays
-					norma = new uf4   [nbe];
-					posa  = new uf4   [nvert];
-					ep    = new ui4   [nbe];
-					for(unsigned int i=0; i<max(nvert,nbe); i++){
-						if(i<nbe){
+					fnorma = new uf4   [fnbe];
+					fposa  = new uf4   [fnvert];
+					fep    = new ui4   [fnbe];
+					for(unsigned int i=0; i<max(fnvert,fnbe); i++){
+						if(i<fnbe){
 							for(int j=0; j<3; j++){
-								norma[i].a[j] = norm[i][j];
-								ep[i].a[j] = epv[i][j];
+								fnorma[i].a[j] = norm[i][j];
+								fep[i].a[j] = epv[i][j];
 							}
 						}
 						if(i<nvert){
 							for(int j=0; j<3; j++)
-								posa[i].a[j] = pos[i][j];
+								fposa[i].a[j] = pos[i][j];
 						}
 					}
 					pos.clear();
           epv.clear();
 					norm.clear();
+          cout << " [OK]" << endl;
 				}
+        else{
+          // no coarse geometry available, copy fine one to f* arrays
+          fnvert = nvert;
+          fnbe = nbe;
+          fep = new ui4 [fnbe];
+          fnorma = new uf4 [fnbe];
+          fposa = new uf4 [fnvert];
+          for(int i=0; i<max(fnvert,fnbe); i++){
+            if(i<fnbe){
+              fep[i] = ep[i];
+              fnorma[i] = norma[i];
+            }
+            if(i<fnvert)
+              fposa[i] = posa[i];
+          }
+        }
 
 				// read fluid geometry
 				// read header
@@ -730,32 +748,34 @@ int crixus_main(int argc, char** argv){
 				}
 				cnvert = pos.size();
 				cnbe   = norm.size();
+        cout << " [OK]" << endl;
+        cout << "Merging arrays and preparing device for filling ...";
 				//create and copy vectors to arrays
-				cnorma = new uf4   [nbe];
-				cposa  = new uf4   [nvert];
-				cep    = new ui4   [nbe];
-				for(unsigned int i=0; i<max(nbe,nvert); i++){
-					if(i<nbe){
-						cnorma[i] = norma[i];
-						cep   [i] = ep   [i];
+				cnorma = new uf4   [fnbe];
+				cposa  = new uf4   [fnvert];
+				cep    = new ui4   [fnbe];
+				for(unsigned int i=0; i<max(fnbe,fnvert); i++){
+					if(i<fnbe){
+						cnorma[i] = fnorma[i];
+						cep   [i] = fep   [i];
 					}
-					if(i<nvert){
-						cposa [i] = posa [i];
+					if(i<fnvert){
+						cposa [i] = fposa [i];
 					}
 				}
-				delete [] norma;
-				delete [] posa;
-				delete [] ep;
-				norma = new uf4   [nbe+cnbe];
-				posa  = new uf4   [nvert+cnvert];
-				ep    = new ui4   [nbe+cnbe];
-				for(unsigned int i=0; i<max(nbe,nvert); i++){
-					if(i<nbe){
-						norma[i] = cnorma[i];
-						ep   [i] = cep   [i];
+				delete [] fnorma;
+				delete [] fposa;
+				delete [] fep;
+				fnorma = new uf4   [fnbe+cnbe];
+				fposa  = new uf4   [fnvert+cnvert];
+				fep    = new ui4   [fnbe+cnbe];
+				for(unsigned int i=0; i<max(fnbe,fnvert); i++){
+					if(i<fnbe){
+						fnorma[i] = cnorma[i];
+						fep   [i] = cep   [i];
 					}
-					if(i<nvert){
-						posa [i] = cposa [i];
+					if(i<fnvert){
+						fposa [i] = cposa [i];
 					}
 				}
 				delete [] cnorma;
@@ -764,46 +784,55 @@ int crixus_main(int argc, char** argv){
 				for(unsigned int i=0; i<max(cnvert,cnbe); i++){
 					if(i<cnbe){
 						for(int j=0; j<3; j++){
-							norma[i+nbe].a[j] = norm[i][j];
-							ep[i+nbe].a[j] = epv[i][j];
+							fnorma[i+fnbe].a[j] = norm[i][j];
+							fep[i+fnbe].a[j] = epv[i][j];
 						}
 					}
 					if(i<cnvert){
 						for(int j=0; j<3; j++)
-							posa[i+nvert].a[j] = pos[i][j];
+							fposa[i+fnvert].a[j] = pos[i][j];
 					}
 				}
-				nvert += cnvert;
-				nbe += cnbe;
+				fnvert += cnvert;
+				fnbe += cnbe;
 				pos.clear();
 				epv.clear();
 				norm.clear();
 				CUDA_SAFE_CALL( cudaMalloc((void **) &norm_d,   nbe*sizeof(uf4)) );
 				CUDA_SAFE_CALL( cudaMalloc((void **) &pos_d , nvert*sizeof(uf4)) );
 				CUDA_SAFE_CALL( cudaMalloc((void **) &ep_d  ,   nbe*sizeof(ui4)) );
-				CUDA_SAFE_CALL( cudaMemcpy((void *) norm_d, (void *) norma,   nbe*sizeof(uf4), cudaMemcpyHostToDevice) );
-				CUDA_SAFE_CALL( cudaMemcpy((void *) pos_d , (void *) posa , nvert*sizeof(uf4), cudaMemcpyHostToDevice) );
-				CUDA_SAFE_CALL( cudaMemcpy((void *) ep_d  , (void *) ep   ,   nbe*sizeof(ui4), cudaMemcpyHostToDevice) );
+				CUDA_SAFE_CALL( cudaMemcpy((void *) norm_d, (void *) fnorma,   fnbe*sizeof(uf4), cudaMemcpyHostToDevice) );
+				CUDA_SAFE_CALL( cudaMemcpy((void *) pos_d , (void *) fposa , fnvert*sizeof(uf4), cudaMemcpyHostToDevice) );
+				CUDA_SAFE_CALL( cudaMemcpy((void *) ep_d  , (void *) fep   ,   fnbe*sizeof(ui4), cudaMemcpyHostToDevice) );
 
         numBlocks = (int) ceil((float)maxf/(float)numThreads);
         numBlocks = min(numBlocks,maxblock);
+        cout << " [OK]" << endl;
+			} // end firstfgeom
 
-        Lock lock_f;
-        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, nbe, nvert, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f);
-        CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
-        nfluid += nfi;
-			}
+      Lock lock_f;
+      fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, fnvert, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f);
+      CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
+      nfluid += nfi;
 		}
 
 		cont = 'n';
-		if(nfbox == maxfbox)
-			break;
 		do{
 			if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
 			cout << "Another fluid container (y/n): ";
 			cin >> cont;
+      if(nfbox==maxfbox){
+        cont = 'n';
+        cout << "Maximum number of fluid boxes reached, no more fluid can be added." << endl;
+      }
 			if(cont=='n') set = false;
 		}while(cont!='y' && cont!='n');
+
+    if(!firstfgeom && cont == 'n'){
+      delete [] fposa;
+      delete [] fnorma;
+      delete [] fep;
+    }
 	}
 	CUDA_SAFE_CALL( cudaMemcpy((void *) fpos, (void *) fpos_d, maxf*sizeof(unsigned int), cudaMemcpyDeviceToHost) );
 	cout << "\nCreation of " << nfluid << " fluid particles completed. [OK]" << endl;
@@ -830,8 +859,8 @@ int crixus_main(int argc, char** argv){
 	imin[2] = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr))+1;
 	//free particles
 	for(unsigned int j=0; j<maxfn; j++){
-		int i = j/(8*sizeof(unsigned int));
-		int l = j%(8*sizeof(unsigned int));
+		int i = j/bitPerUint;
+		int l = j%bitPerUint;
 		m = 1 << l;
 		if(fpos[i] & m){
 			m = j/(imin[1]*imin[2]);
