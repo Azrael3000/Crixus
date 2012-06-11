@@ -486,9 +486,9 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 
 __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, float xmax, float ymin, float ymax, float zmin, float zmax, uf4 *dmin, uf4 *dmax, float eps, float dr, Lock lock)
 {
-	//this can be a bit more complex in order to fill complex geometries
+  // this function is responsible for filling a box with fluid
 	__shared__ int nfi_cache[threadsPerBlock];
-	int bitPerUint = 8*sizeof(unsignedInt)
+	int bitPerUint = 8*sizeof(unsigned int);
 	//dim local
 	int idim =  floor((xmax+eps-xmin)/dr)+1;
 	int jdim =  floor((ymax+eps-ymin)/dr)+1;
@@ -498,68 +498,38 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 	int jdimg = int(floor(((*dmax).a[1]-(*dmin).a[1]+eps)/dr+1));
 	int kdimg = int(floor(((*dmax).a[2]-(*dmin).a[2]+eps)/dr+1));
 	//min indices
-	int imin = floor(((float)idimg)*(xmin-(*dmin).a[0])/((*dmax).a[0]-(*dmin).a[0])+eps);
-	int jmin = floor(((float)jdimg)*(ymin-(*dmin).a[1])/((*dmax).a[1]-(*dmin).a[1])+eps);
-	int kmin = floor(((float)kdimg)*(zmin-(*dmin).a[2])/((*dmax).a[2]-(*dmin).a[2])+eps);
-	//offset
-	int iboff = bitPerUint - (imin + jmin*idimg + kmin*idimg*jdimg)%bitPerUint;
-	int i, j, k, tmp, nfi_tmp;
-	int tid = threadIdx.x;
-  int fmaxi = idim*jdim*kdim;
+	int imin = floor(((float)idimg-1.)*(xmin-(*dmin).a[0])/((*dmax).a[0]-(*dmin).a[0])+eps);
+	int jmin = floor(((float)jdimg-1.)*(ymin-(*dmin).a[1])/((*dmax).a[1]-(*dmin).a[1])+eps);
+	int kmin = floor(((float)kdimg-1.)*(zmin-(*dmin).a[2])/((*dmax).a[2]-(*dmin).a[2])+eps);
 
-	nfi_tmp = 0;
-	int id = bitPerUint*(blockIdx.x*blockDim.x+threadIdx.x)+iboff;
-	if(threadIdx.x==0 && blockIdx.x==0){
-		//handle offset
-		for(int ii=0; ii<iboff; ii++){
-			k = ii/(idim*jdim);
-			tmp = ii%(idim*jdim);
-			j = tmp/idim;
-			i = tmp%idim;
-			if(i<=idim && j<=jdim && k<=kdim){
-				i += imin;
-				j += jmin;
-				k += kmin;
-				int ind = i + j*idimg + k*idimg*jdimg;
-				// in theory inda is constant during the ii loop
-				int inda = ind/bitPerUint;
-				int indb = ind%bitPerUint;
-				unsigned int b = 1<<indb;
-				fpos[inda] = fpos[inda] | b;
-				nfi_tmp++;
-			}
-			else{
-				break;
-			}
-		}
-    *nfi = iboff;
-	}
-  return;
-	while(id<fmaxi){
-		for(int ii=0; ii<bitPerUint; ii++){
-			k = id/(idim*jdim);
-			tmp = id%(idim*jdim);
-			j = tmp/idim;
-			i = tmp%idim;
-			if(i<=idim && j<=jdim && k<=kdim){
-				i += imin;
-				j += jmin;
-				k += kmin;
-				int ind = i + j*idimg + k*idimg*jdimg;
-				// in theory inda is constant during the ii loop
-				int inda = ind/bitPerUint;
-				int indb = ind%bitPerUint;
-				unsigned int b = 1<<indb;
-				fpos[inda] = fpos[inda] | b;
-				nfi_tmp++;
-				id++;
-			}
-			else{
-				break;
-			}
-		}
-		id += (blockDim.x*gridDim.x-1)*bitPerUint;
-	}
+  int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
+  int i,j,k,tmp,nfi_tmp;
+  nfi_tmp = 0;
+  while(((int)ceil(arrayInd/((float)bitPerUint)))<idimg*jdimg*kdimg){
+    // loop through all bits of the array entry with index arrayInd
+    for(int ii=0, bitInd=arrayInd*bitPerUint; ii<bitPerUint; ii++, bitInd++){
+      k = bitInd/(idimg*jdimg);
+      tmp = bitInd%(idimg*jdimg);
+      j = tmp/idimg;
+      i = tmp%idimg;
+      // are we in the big box?
+      if(i<=idimg && j<=jdimg && k<=kdimg){
+        // are we in the small box that needs to be filled?
+        if((     i>=imin &&      j>=jmin &&      k>=kmin) &&
+           (i-imin< idim && j-jmin< jdim && k-kmin< kdim)){
+          unsigned int bit = 1<<ii;
+          fpos[arrayInd] = fpos[arrayInd] | bit;
+          nfi_tmp++;
+        }
+      }
+      else
+        break;
+    }
+    arrayInd += blockDim.x*gridDim.x;
+  }
+
+  // now sum up all the filled bits
+	int tid = threadIdx.x;
 	nfi_cache[tid] = nfi_tmp;
 
 	__syncthreads();
@@ -577,6 +547,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 		*nfi += nfi_cache[0];
 		lock.unlock();
 	}
+  return;
 }
 
 #endif

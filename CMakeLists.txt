@@ -15,9 +15,6 @@ cmake_minimum_required(VERSION 2.8)
 
 # Search packages.
 find_package(CUDA REQUIRED)
-find_package(Threads REQUIRED)
-find_package(GLUT REQUIRED)
-find_package(OpenGL REQUIRED)
 find_package(HDF5 REQUIRED)
 
 # cuda sdk path
@@ -26,7 +23,7 @@ set(CUDA_SDK_ROOT_DIR "/home/kassiotis/NVIDIA_GPU_Computing_SDK")
 # set compilation options
 set(CUDA_NVCC_FLAGS "-arch=sm_20")
 
-include_directories (${CUDA_INCLUDE_DIRS}) 
+include_directories (${CUDA_INCLUDE_DIRS} ${HDF5_INCLUDE_DIRS}) 
 
 # Add source directory to project.
 add_subdirectory(src)

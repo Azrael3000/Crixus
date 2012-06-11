@@ -1,7 +1,11 @@
 /***********************************\
  *
  * TODO LIST:
- * - filling of complex geometries
+ * - Version 0.5:
+ *   - filling of complex geometries
+ *   - specification of fluid box
+ * - Version 0.6:
+ *   - in/outflow option
  *
 \***********************************/
 
@@ -31,12 +35,12 @@ int crixus_main(int argc, char** argv){
 	cout << "\t*          C R I X U S          *" << endl;
 	cout << "\t*                               *" << endl;
 	cout << "\t*********************************" << endl;
-	cout << "\t* Version: 0.4b                 *" << endl;
-	cout << "\t* Date   : 09.02.2012           *" << endl;
+	cout << "\t* Version: 0.5a                 *" << endl;
+	cout << "\t* Date   : 11.06.2012           *" << endl;
 	cout << "\t* Authors: Arno Mayrhofer       *" << endl;
-	cout << "\t*          Christophe Kassiotis *"<< endl;
-	cout << "\t*          F-X Morel            *"<< endl;
-	cout << "\t*          Martin Ferrand       *"<< endl;
+	cout << "\t*          Christophe Kassiotis *" << endl;
+	cout << "\t*          F-X Morel            *" << endl;
+	cout << "\t*          Martin Ferrand       *" << endl;
 	cout << "\t*********************************" << endl;
 	cout << endl;
 	float m_v_floats[12];
@@ -459,14 +463,15 @@ int crixus_main(int argc, char** argv){
 	for(unsigned int i=0; i<3; i++)
 		eps = max((dmax.a[i]-dmin.a[i])*1e-6,eps);
 
-	maxfn = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr+1)*floor((dmax.a[1]-dmin.a[1]+eps)/dr+1)*floor((dmax.a[2]-dmin.a[2]+eps)/dr+1));
-	maxf = int(ceil(float(maxfn)/8./float(sizeof(unsigned int))));
-  cout << maxf << " " << maxfn << "maxf,maxfn" << endl;
+	maxfn = (int)floor((dmax.a[0]-dmin.a[0]+eps)/dr+1)*floor((dmax.a[1]-dmin.a[1]+eps)/dr+1)*floor((dmax.a[2]-dmin.a[2]+eps)/dr+1);
+	maxf = (int)ceil(float(maxfn)/8./((float)sizeof(unsigned int)));
 	fpos = new unsigned int [maxf];
 	CUDA_SAFE_CALL( cudaMalloc((void **) &fpos_d, maxf*sizeof(unsigned int)) );
   CUDA_SAFE_CALL( cudaMalloc((void **) &nfi_d, sizeof(unsigned int)) );
   for(int i=0; i<maxf; i++) fpos[i] = 0;
+  unsigned int nfi=0;
   CUDA_SAFE_CALL( cudaMemcpy((void *) fpos_d, (void *) fpos, maxf*sizeof(unsigned int), cudaMemcpyHostToDevice) );
+  CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
 	while(set){
 		xmin = xmax = ymin = ymax = zmin = zmax = 0.;
@@ -503,7 +508,6 @@ int crixus_main(int argc, char** argv){
 			numBlocks = min(numBlocks,maxblock);
 
 			Lock lock_f;
-			unsigned int nfi;
 			fill_fluid<<<numBlocks, numThreads>>> (fpos_d, nfi_d, xmin, xmax, ymin, ymax, zmin, zmax, dmin_d, dmax_d, eps, dr, lock_f);
 			CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
 			nfluid += nfi;
@@ -760,27 +764,22 @@ int crixus_main(int argc, char** argv){
 	int k=0;
 	unsigned int m,n,imin[3];
   float fluid_vol = pow(dr,3);
-	imin[0] = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr));
-	imin[1] = int(floor((dmax.a[1]-dmin.a[1]+eps)/dr));
-	imin[2] = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr));
-  cout << dmin.a[0] << " " << dmin.a[1] << " " << dmin.a[2] << endl;
-  cout << dmax.a[0] << " " << dmax.a[1] << " " << dmax.a[2] << endl;
-  cout << eps << " " << dr << endl;
-  cout << imin[0] << " " << imin[1] << " " << imin[2] << endl;
-	//fluid particles
+	imin[0] = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr))+1;
+	imin[1] = int(floor((dmax.a[1]-dmin.a[1]+eps)/dr))+1;
+	imin[2] = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr))+1;
+	//free particles
 	for(unsigned int j=0; j<maxfn; j++){
 		int i = j/(8*sizeof(unsigned int));
 		int l = j%(8*sizeof(unsigned int));
 		m = 1 << l;
 		if(fpos[i] & m){
-cout << i << " " << l << " " << m << " "<< fpos[i] << " " << (fpos[i] & m) << endl;
-			m = maxfn/(imin[1]*imin[2]);
-			buf[k].x = dmin.a[0]+dr*m;
-			n = maxfn - m*(imin[1]*imin[2]);
+			m = j/(imin[1]*imin[2]);
+			buf[k].x = dmin.a[0]+dr*(float)m;
+			n = j%(imin[1]*imin[2]);
 			m = n/imin[2];
-			buf[k].y = dmin.a[1]+dr*m;
-			m = n - m*imin[2];
-			buf[k].z = dmin.a[2]+dr*m;
+			buf[k].y = dmin.a[1]+dr*(float)m;
+			m = n%imin[2];
+			buf[k].z = dmin.a[2]+dr*(float)m;
 			buf[k].nx = 0.;
 			buf[k].ny = 0.;
 			buf[k].nz = 0.;
@@ -794,7 +793,6 @@ cout << i << " " << l << " " << m << " "<< fpos[i] << " " << (fpos[i] & m) << en
 			buf[k].ep1 = 0;
 			buf[k].ep2 = 0;
 			buf[k].ep3 = 0;
-      cout << "k:" << k << endl;
 			k++;
 		}
 	}
@@ -829,7 +827,7 @@ cout << i << " " << l << " " << m << " "<< fpos[i] << " " << (fpos[i] & m) << en
 		buf[k].ep3 = 0;
 		k++;
 	}
-	//boundary elements
+	//boundary segments
 	for(unsigned int i=nvert; i<nvert+nbe; i++){
 		buf[k].x = posa[i].a[0];
 		buf[k].y = posa[i].a[1];

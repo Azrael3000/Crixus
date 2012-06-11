@@ -1,3 +1,0 @@
-box_blend.stl 0.25
-ynnn -0.75 0. -0.75 0.75 -0.75 0. n
-echo -e "ynnny 2. 1 -0.875 0. -0.875 0.875 -0.875 0. n" | ../../bin/debug/crixus box_blend_16.stl 0.125
