@@ -488,6 +488,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 {
 	//this can be a bit more complex in order to fill complex geometries
 	__shared__ int nfi_cache[threadsPerBlock];
+	int bitPerUint = 8*sizeof(unsignedInt)
 	//dim local
 	int idim =  floor((xmax+eps-xmin)/dr)+1;
 	int jdim =  floor((ymax+eps-ymin)/dr)+1;
@@ -501,13 +502,13 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 	int jmin = floor(((float)jdimg)*(ymin-(*dmin).a[1])/((*dmax).a[1]-(*dmin).a[1])+eps);
 	int kmin = floor(((float)kdimg)*(zmin-(*dmin).a[2])/((*dmax).a[2]-(*dmin).a[2])+eps);
 	//offset
-	int iboff = sizeof(unsigned int) - (imin + jmin*idimg + kmin*idimg*jdimg)%sizeof(unsigned int);
+	int iboff = bitPerUint - (imin + jmin*idimg + kmin*idimg*jdimg)%bitPerUint;
 	int i, j, k, tmp, nfi_tmp;
 	int tid = threadIdx.x;
   int fmaxi = idim*jdim*kdim;
 
 	nfi_tmp = 0;
-	int id = sizeof(unsigned int)*(blockIdx.x*blockDim.x+threadIdx.x)+iboff;
+	int id = bitPerUint*(blockIdx.x*blockDim.x+threadIdx.x)+iboff;
 	if(threadIdx.x==0 && blockIdx.x==0){
 		//handle offset
 		for(int ii=0; ii<iboff; ii++){
@@ -521,8 +522,8 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 				k += kmin;
 				int ind = i + j*idimg + k*idimg*jdimg;
 				// in theory inda is constant during the ii loop
-				int inda = ind/sizeof(unsigned int);
-				int indb = ind%sizeof(unsigned int);
+				int inda = ind/bitPerUint;
+				int indb = ind%bitPerUint;
 				unsigned int b = 1<<indb;
 				fpos[inda] = fpos[inda] | b;
 				nfi_tmp++;
@@ -535,7 +536,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 	}
   return;
 	while(id<fmaxi){
-		for(int ii=0; ii<sizeof(unsigned int); ii++){
+		for(int ii=0; ii<bitPerUint; ii++){
 			k = id/(idim*jdim);
 			tmp = id%(idim*jdim);
 			j = tmp/idim;
@@ -546,8 +547,8 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 				k += kmin;
 				int ind = i + j*idimg + k*idimg*jdimg;
 				// in theory inda is constant during the ii loop
-				int inda = ind/sizeof(unsigned int);
-				int indb = ind%sizeof(unsigned int);
+				int inda = ind/bitPerUint;
+				int indb = ind%bitPerUint;
 				unsigned int b = 1<<indb;
 				fpos[inda] = fpos[inda] | b;
 				nfi_tmp++;
@@ -557,7 +558,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 				break;
 			}
 		}
-		id += (blockDim.x*gridDim.x-1)*sizeof(unsigned int);
+		id += (blockDim.x*gridDim.x-1)*bitPerUint;
 	}
 	nfi_cache[tid] = nfi_tmp;
 
