@@ -745,7 +745,7 @@ int crixus_main(int argc, char** argv){
         numBlocks = min(numBlocks,maxblock);
 
         Lock lock_f;
-        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, xmin, xmax, ymin, ymax, zmin, zmax, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f);
+        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, nbe, nvert, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f);
         CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
         nfluid += nfi;
 			}
