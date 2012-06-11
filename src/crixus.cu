@@ -520,6 +520,15 @@ int crixus_main(int argc, char** argv){
 			cout << "Please specify a seed point." << endl;
 			cout << "x, y, z = ";
 			cin >> spos[0] >> spos[1] >> spos[2];
+      // initialize placing of seed point
+      int ispos = (int)floor((spos[0]-dmin.a[0]+eps)/dr);
+      int jspos = (int)floor((spos[1]-dmin.a[1]+eps)/dr);
+      int kspos = (int)floor((spos[2]-dmin.a[2]+eps)/dr);
+      int idimg = (int)floor(((*dmax).a[0]-(*dmin).a[0]+eps)/dr+1);
+      int jdimg = (int)floor(((*dmax).a[1]-(*dmin).a[1]+eps)/dr+1);
+      int sInd = ispos + jspos*idimg + kspos*idimg*jdimg;
+      int sIndex = sInd/(8*sizeof(unsigned Int));
+      unsigned int bit = 1<<(sInd%(8*sizeof(unsigned Int)));
 
 			// initialize geometry if first run
 			if(firstfgeom){
@@ -597,7 +606,7 @@ int crixus_main(int argc, char** argv){
 					delete [] ep;
 					//create and copy vectors to arrays
 					norma = new uf4   [nbe];
-					posa  = new uf4   [nvert+nbe];
+					posa  = new uf4   [nvert];
 					ep    = new ui4   [nbe];
 					for(unsigned int i=0; i<max(nvert,nbe); i++){
 						if(i<nbe){
@@ -731,6 +740,14 @@ int crixus_main(int argc, char** argv){
 				CUDA_SAFE_CALL( cudaMemcpy((void *) norm_d, (void *) norma,   nbe*sizeof(uf4), cudaMemcpyHostToDevice) );
 				CUDA_SAFE_CALL( cudaMemcpy((void *) pos_d , (void *) posa , nvert*sizeof(uf4), cudaMemcpyHostToDevice) );
 				CUDA_SAFE_CALL( cudaMemcpy((void *) ep_d  , (void *) ep   ,   nbe*sizeof(ui4), cudaMemcpyHostToDevice) );
+
+        numBlocks = (int) ceil((float)maxf/(float)numThreads);
+        numBlocks = min(numBlocks,maxblock);
+
+        Lock lock_f;
+        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, xmin, xmax, ymin, ymax, zmin, zmax, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f);
+        CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
+        nfluid += nfi;
 			}
 		}
 

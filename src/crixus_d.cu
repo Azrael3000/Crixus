@@ -550,4 +550,155 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   return;
 }
 
+__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, float xmin, float xmax, float ymin, float ymax, float zmin, float zmax, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock)
+{
+  // this function is responsible for filling a complex geometry with fluid
+  // place seed point
+  int nfi_tmp = 0;
+  if(threadIdx.x==0 && blockIdx.x==0 && !(fpos[sIndex] & sBit)){
+    nfi_tmp++;
+    fpos[sIndex] = fpos[sIndex] | sBit;
+  }
+
+	__shared__ int nfi_cache[threadsPerBlock];
+	int bitPerUint = 8*sizeof(unsigned int);
+	//dim local
+	int idim =  floor((xmax+eps-xmin)/dr)+1;
+	int jdim =  floor((ymax+eps-ymin)/dr)+1;
+	int kdim =  floor((zmax+eps-zmin)/dr)+1;
+	//dim global
+	int idimg = int(floor(((*dmax).a[0]-(*dmin).a[0]+eps)/dr+1));
+	int jdimg = int(floor(((*dmax).a[1]-(*dmin).a[1]+eps)/dr+1));
+	int kdimg = int(floor(((*dmax).a[2]-(*dmin).a[2]+eps)/dr+1));
+	//min indices
+	int imin = floor(((float)idimg-1.)*(xmin-(*dmin).a[0])/((*dmax).a[0]-(*dmin).a[0])+eps);
+	int jmin = floor(((float)jdimg-1.)*(ymin-(*dmin).a[1])/((*dmax).a[1]-(*dmin).a[1])+eps);
+	int kmin = floor(((float)kdimg-1.)*(zmin-(*dmin).a[2])/((*dmax).a[2]-(*dmin).a[2])+eps);
+
+  int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
+  int i,j,k,tmp;
+  while(((int)ceil(arrayInd/((float)bitPerUint)))<idimg*jdimg*kdimg){
+    // loop through all bits of the array entry with index arrayInd
+    for(int ii=0, bitInd=arrayInd*bitPerUint; ii<bitPerUint; ii++, bitInd++){
+      unsigned int bit = 1<<ii;
+      //check if position is already filled
+      if(!(fpos[arrayInd] & bit)){
+        k = bitInd/(idimg*jdimg);
+        tmp = bitInd%(idimg*jdimg);
+        j = tmp/idimg;
+        i = tmp%idimg;
+        // are we in the big box?
+        if(i<=idimg && j<=jdimg && k<=kdimg){
+          //look around
+          for(int ij=0; i<6; i++){
+            int ioff = 0, joff = 0, koff = 0;
+            if(ij<=1) ioff = (ij==0) ? -1 : 1;
+            if(ij>=4) koff = (ij==4) ? -1 : 1;
+            if(ioff+koff==0) joff = (ij==2) ? -1 : 1;
+            ioff += i;
+            joff += j;
+            koff += k;
+            int indOff = ioff + joff*idimg + koff*idimg*jdimg;
+            // check whether position is filled
+            if(fpos[indOff/bitPerUint] & (1<<(indOff%bitPerUint))){
+              // check for collision with triangle
+              bool collision = checkCollision(i,j,k,ioff,joff,koff);
+              if(!collision){
+                fpos[indOff/bitPerUint] = fpos[indOff/bitPerUint] | (1<<(indOff%bitPerUint));
+                nfi_tmp++;
+              }
+            }
+          }
+        }
+        else // no longer in big box
+          break;
+      }
+    }
+    arrayInd += blockDim.x*gridDim.x;
+  }
+
+  // now sum up all the filled bits
+	int tid = threadIdx.x;
+	nfi_cache[tid] = nfi_tmp;
+
+	__syncthreads();
+
+	j = blockDim.x/2;
+	while (j!=0){
+		if(tid < j)
+			nfi_cache[tid] += nfi_cache[tid+j];
+		__syncthreads();
+		j /= 2;
+	}
+
+	if(tid == 0){
+		lock.lock();
+		*nfi += nfi_cache[0];
+		lock.unlock();
+	}
+  return;
+}
+
+__device__ bool checkCollision(int si,int sj,int sk,int ei,int ej,int ek){
+  // checks whether the line-segment determined by s. and e. intersects any available triangle
+  bool collision = false;
+  // loop through all triangles
+  return collision;
+}
+
+__device__ bool checkTrianleCollision(uf4 s, uf4 e, uf4 n, uf4 *v){
+  // algorithm for triangle line-segment collision check
+  // step 1: calculate t_s, t_e
+  float d, t_e, t_s;
+  d = -dot(n,v[0]);
+  t_s = dot(n,s) + d;
+  t_e = dot(n,e) + d;
+  // step 2: first check t_s*t_e > 0 => no intersection
+  if(t_s*t_e > 0.)
+    return false;
+  // step 3: calculate i, e_tilde[0:1], nPrime_i[0:1]
+  int i = -1; // i = maxloc(n_j)
+  float maxval = -1.;
+  uf4 e_tilde[3];
+  for(int ii=0; ii<3; ii++){
+    if(fabs(n.a[ii]) > maxval){
+      maxval = fabs(n.a[ii]);
+      i = ii;
+    }
+  }
+  int j = 0; k; // other indices (different from i)
+  if(i==j)
+    j = 1;
+  k = 3 - (i+j);
+  e_tilde[0].a[j] = v[1].a[j] - v[0].a[j];
+  e_tilde[0].a[k] = v[1].a[k] - v[0].a[k];
+  e_tilde[1].a[j] = v[2].a[j] - v[0].a[j];
+  e_tilde[1].a[k] = v[2].a[k] - v[0].a[k];
+  uf4 nPrime_i;
+  for(int l=0; l<2; l++){
+    nPrime_i.a[l] = e_tilde[l].a[j]*((s.a[k]-v[l].a[k])*(t_s-t_e)+t_s*(e.a[k]-s.a[k])) -
+                    e_tilde[l].a[k]*((s.a[j]-v[l].a[j])*(t_s-t_e)+t_s*(e.a[j]-s.a[j]));
+  }
+  // step 4: second check n_{0,i} * n_{1,i} < 0 => no intersection
+  if(nPrime_i.a[0]*nPrime_i.a[1] < 0)
+    return false;
+  // step 5: calculate e_tilde[2], nPrime_i[2]
+  e_tilde[2].a[j] = v[1].a[j] - v[2].a[j];
+  e_tilde[2].a[k] = v[1].a[k] - v[2].a[k];
+  nPrime_i.a[2] = e_tilde[2].a[j]*((s.a[k]-v[2].a[k])*(t_s-t_e)+t_s*(e.a[k]-s.a[k])) -
+                  e_tilde[2].a[k]*((s.a[j]-v[2].a[j])*(t_s-t_e)+t_s*(e.a[j]-s.a[j]));
+  // step 6: third check n_{0,i} * n_{2,i} < 0 => no intersection
+  if(nPrime_i.a[0]*nPrime_i.a[2] < 0)
+    return false;
+  // step 7: collision detected
+  return true;
+}
+
+__device__ float dot(uf4 a, uf4 b){
+  float sp = 0.;
+  for(int i=0; i<3; i++)
+    sp += a.a[i]*b.a[i];
+  return sp;
+}
+
 #endif
