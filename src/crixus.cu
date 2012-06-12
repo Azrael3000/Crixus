@@ -47,7 +47,7 @@ int crixus_main(int argc, char** argv){
 	unsigned int through;
 	short attribute;
 	unsigned int num_of_facets;
-  unsigned int bitPerUint = 8*sizeof(unsigned int);
+  const unsigned int bitPerUint = 8*sizeof(unsigned int);
 
   if(argc==1){
 		cout << "No file specified." << endl;
@@ -520,9 +520,7 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMalloc((void **) &fpos_d, maxf*sizeof(unsigned int)) );
   CUDA_SAFE_CALL( cudaMalloc((void **) &nfi_d, sizeof(unsigned int)) );
   for(unsigned int i=0; i<maxf; i++) fpos[i] = 0;
-  unsigned int nfi=0;
   CUDA_SAFE_CALL( cudaMemcpy((void *) fpos_d, (void *) fpos, maxf*sizeof(unsigned int), cudaMemcpyHostToDevice) );
-  CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
 	while(set){
 		xmin = xmax = ymin = ymax = zmin = zmax = 0.;
@@ -564,7 +562,11 @@ int crixus_main(int argc, char** argv){
 			numBlocks = min(numBlocks,maxblock);
 
 			Lock lock_f;
+      unsigned int nfi=0;
+      CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
+
 			fill_fluid<<<numBlocks, numThreads>>> (fpos_d, nfi_d, xmin, xmax, ymin, ymax, zmin, zmax, dmin_d, dmax_d, eps, dr, lock_f);
+
 			CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
 			nfluid += nfi;
 				
@@ -814,10 +816,21 @@ int crixus_main(int argc, char** argv){
         cout << " [OK]" << endl;
 			} // end firstfgeom
 
-      Lock lock_f;
-      fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, fnvert, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f);
-      CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
-      nfluid += nfi;
+      unsigned int nfi;
+      int bla = 0;
+      do{
+        Lock lock_f;
+        bla++;
+        nfi = 0;
+        CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
+
+        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, fnvert, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f);
+
+        CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
+        nfluid += nfi;
+        cout << "nfi " << nfi << endl;
+      } while(nfi > 0 && bla < 100);
+      cout << "bla " << bla << endl;
 		}
 
 		cont = 'n';
@@ -868,12 +881,12 @@ int crixus_main(int argc, char** argv){
 		m = 1 << l;
 		if(fpos[i] & m){
 			m = j/(imin[1]*imin[2]);
-			buf[k].x = dmin.a[0]+dr*(float)m;
+			buf[k].z = dmin.a[1]+dr*(float)m;
 			n = j%(imin[1]*imin[2]);
 			m = n/imin[2];
 			buf[k].y = dmin.a[1]+dr*(float)m;
 			m = n%imin[2];
-			buf[k].z = dmin.a[2]+dr*(float)m;
+			buf[k].x = dmin.a[0]+dr*(float)m;
 			buf[k].nx = 0.;
 			buf[k].ny = 0.;
 			buf[k].nz = 0.;

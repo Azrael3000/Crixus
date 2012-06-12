@@ -513,7 +513,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
       j = tmp/idimg;
       i = tmp%idimg;
       // are we in the big box?
-      if(i<=idimg && j<=jdimg && k<=kdimg){
+      if(i<idimg && j<jdimg && k<kdimg){
         // are we in the small box that needs to be filled?
         if((     i>=imin &&      j>=jmin &&      k>=kmin) &&
            (i-imin< idim && j-jmin< jdim && k-kmin< kdim)){
@@ -561,7 +561,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
   }
 
 	__shared__ int nfi_cache[threadsPerBlock];
-	int bitPerUint = 8*sizeof(unsigned int);
+	const unsigned int bitPerUint = 8*sizeof(unsigned int);
 	//dim global
 	ui4 dimg;
 	dimg.a[0] = int(floor(((*dmax).a[0]-(*dmin).a[0]+eps)/dr+1));
@@ -570,6 +570,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
 
   int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
   int i,j,k,tmp;
+  bool bdebug = false;
   while(((int)ceil(arrayInd/((float)bitPerUint)))<dimg.a[0]*dimg.a[1]*dimg.a[2]){
     // loop through all bits of the array entry with index arrayInd
     for(int ii=0, bitInd=arrayInd*bitPerUint; ii<bitPerUint; ii++, bitInd++){
@@ -581,9 +582,9 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
         j = tmp/dimg.a[0];
         i = tmp%dimg.a[0];
         // are we in the big box?
-        if(i<=dimg.a[0] && j<=dimg.a[1] && k<=dimg.a[2]){
+        if(i<dimg.a[0] && j<dimg.a[1] && k<dimg.a[2]){
           //look around
-          for(int ij=0; i<6; i++){
+          for(int ij=0; ij<6; ij++){
             int ioff = 0, joff = 0, koff = 0;
             if(ij<=1) ioff = (ij==0) ? -1 : 1;
             if(ij>=4) koff = (ij==4) ? -1 : 1;
@@ -591,9 +592,9 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
             ioff += i;
             joff += j;
             koff += k;
-						if(ioff<0 || ioff>=dimg.a[0] || 
-						   joff<0 || joff>=dimg.a[1] || 
-							 koff<0 || koff>=dimg.a[2]   )
+						if(ioff<0 || ioff>dimg.a[0] || 
+						   joff<0 || joff>dimg.a[1] || 
+							 koff<0 || koff>dimg.a[2]   )
 							continue;
             int indOff = ioff + joff*dimg.a[0] + koff*dimg.a[0]*dimg.a[1];
             // check whether position is filled
@@ -601,8 +602,9 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
               // check for collision with triangle
               bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, pos, nbe, dr, dmin, dimg, eps);
               if(!collision){
-                fpos[indOff/bitPerUint] = fpos[indOff/bitPerUint] | (1<<(indOff%bitPerUint));
+                fpos[arrayInd] = fpos[arrayInd] | bit;
                 nfi_tmp++;
+                break;
               }
             }
           }
@@ -610,6 +612,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
         else // no longer in big box
           break;
       }
+      if(bdebug) break;
     }
     arrayInd += blockDim.x*gridDim.x;
   }
@@ -633,6 +636,31 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
 		*nfi += nfi_cache[0];
 		lock.unlock();
 	}
+  
+  uf4 s,e, n,v[3];
+  s.a[0] = -1.;
+  s.a[1] =  0.;
+  s.a[2] =  0.;
+  e.a[0] =  1.;
+  e.a[1] =  0.;
+  e.a[2] =  0.;
+  n.a[0] =  1.;
+  n.a[1] =  0.;
+  n.a[2] =  0.;
+  v[0].a[0] = 0.;
+  v[0].a[1] =-1.;
+  v[0].a[2] =-1.;
+  v[1].a[0] = 0.;
+  v[1].a[1] = 1.;
+  v[1].a[2] =-1.;
+  v[2].a[0] = 0.;
+  v[2].a[1] = 0.;
+  v[2].a[2] = 1.;
+  bool test = checkTriangleCollision(s,e,n,v,0.);
+  if(test)
+    *nfi = 0;
+  else
+    *nfi = 1;
   return;
 }
 
@@ -640,12 +668,12 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
   // checks whether the line-segment determined by s. and e. intersects any available triangle
   bool collision = false;
 	uf4 s, e, n, v[3];
-	s.a[0] = ((float)si)/((float)dimg.a[0])*dr + (*dmin).a[0];
-	s.a[1] = ((float)sj)/((float)dimg.a[1])*dr + (*dmin).a[1];
-	s.a[2] = ((float)sk)/((float)dimg.a[2])*dr + (*dmin).a[2];
-	e.a[0] = ((float)ei)/((float)dimg.a[0])*dr + (*dmin).a[0];
-	e.a[1] = ((float)ej)/((float)dimg.a[1])*dr + (*dmin).a[1];
-	e.a[2] = ((float)ek)/((float)dimg.a[2])*dr + (*dmin).a[2];
+	s.a[0] = ((float)si)/((float)dimg.a[0]-1.)*dr + (*dmin).a[0];
+	s.a[1] = ((float)sj)/((float)dimg.a[1]-1.)*dr + (*dmin).a[1];
+	s.a[2] = ((float)sk)/((float)dimg.a[2]-1.)*dr + (*dmin).a[2];
+	e.a[0] = ((float)ei)/((float)dimg.a[0]-1.)*dr + (*dmin).a[0];
+	e.a[1] = ((float)ej)/((float)dimg.a[1]-1.)*dr + (*dmin).a[1];
+	e.a[2] = ((float)ek)/((float)dimg.a[2]-1.)*dr + (*dmin).a[2];
 
   // loop through all triangles
 	for(int i=0; i<nbe; i++){
