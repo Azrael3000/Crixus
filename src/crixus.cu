@@ -332,9 +332,9 @@ int crixus_main(int argc, char** argv){
 		if(cont=='y'){
 			per[idim] = true;
 			cout << "Updating links ...";
-	for(int i=0; i<nvert; i++)
-		newlink_h[i] = -1;
-	CUDA_SAFE_CALL( cudaMemcpy((void *) newlink, (void *) newlink_h, nvert*sizeof(int)   , cudaMemcpyHostToDevice) );
+      for(unsigned int i=0; i<nvert; i++)
+        newlink_h[i] = -1;
+      CUDA_SAFE_CALL( cudaMemcpy((void *) newlink, (void *) newlink_h, nvert*sizeof(int)   , cudaMemcpyHostToDevice) );
 			numBlocks = (int) ceil((float)max(nvert,nbe)/(float)numThreads);
 			numBlocks = min(numBlocks,maxblock);
 
@@ -358,7 +358,7 @@ int crixus_main(int argc, char** argv){
 	float *vol_d;
   bool *per_d;
 	trisize_h = new int[nvert];
-	for(int i=0; i<nvert; i++)
+	for(unsigned int i=0; i<nvert; i++)
 		trisize_h[i] = 0;
 	CUDA_SAFE_CALL( cudaMalloc((void **) &trisize, nvert*sizeof(int  )) );
 	CUDA_SAFE_CALL( cudaMalloc((void **) &vol_d  , nvert*sizeof(float)) );
@@ -367,6 +367,7 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) trisize, (void *) trisize_h, nvert*sizeof(int) , cudaMemcpyHostToDevice) );
 	numBlocks = (int) ceil((float)nvert/(float)numThreads);
 	numBlocks = min(numBlocks,maxblock);
+  delete [] trisize_h;
 
 	calc_trisize <<<numBlocks, numThreads>>> (ep_d, trisize, nbe);
 #ifndef bdebug
@@ -406,7 +407,8 @@ int crixus_main(int argc, char** argv){
 	cout << "Checking wether coarse grid is available ...";
 	bool bcoarse = false;
 	int flen = strlen(argv[1]);
-	char *cfname = new char[flen+7];
+	char *cfname;
+  cfname = new char[flen+8];
 	strncpy(cfname, argv[1], flen-4);
 	cfname[flen-4] = '_';
 	cfname[flen-3] = 'c';
@@ -415,6 +417,7 @@ int crixus_main(int argc, char** argv){
 	cfname[flen-0] = 'r';
 	cfname[flen+1] = 's';
 	cfname[flen+2] = 'e';
+	cfname[flen+7] = '\0';
 	strncpy(cfname+flen+3, argv[1]+flen-4, 4);
 	stl_file.open(cfname, ios::in);
 	if(!stl_file.is_open()){
@@ -487,8 +490,13 @@ int crixus_main(int argc, char** argv){
       cout << " [YES]" << endl;
       // reopen file in binary mode
       fstl_file.open(cfname, ios::in | ios::binary);
+      if(!fstl_file.is_open()){
+        cout << "Error: could not reopen fluid geometry file in binary mode" << endl;
+        return -1;
+      }
     }
 	}
+  delete [] cfname;
 
 	bool set = true;
 	bool firstfgeom = true;
@@ -511,7 +519,7 @@ int crixus_main(int argc, char** argv){
 	fpos = new unsigned int [maxf];
 	CUDA_SAFE_CALL( cudaMalloc((void **) &fpos_d, maxf*sizeof(unsigned int)) );
   CUDA_SAFE_CALL( cudaMalloc((void **) &nfi_d, sizeof(unsigned int)) );
-  for(int i=0; i<maxf; i++) fpos[i] = 0;
+  for(unsigned int i=0; i<maxf; i++) fpos[i] = 0;
   unsigned int nfi=0;
   CUDA_SAFE_CALL( cudaMemcpy((void *) fpos_d, (void *) fpos, maxf*sizeof(unsigned int), cudaMemcpyHostToDevice) );
   CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
@@ -535,7 +543,7 @@ int crixus_main(int argc, char** argv){
 		}
 
     // data for geometry bounding grid and fluid bounding grid
-    int fnvert, fnbe;
+    unsigned int fnvert, fnbe;
     uf4 *fposa, *fnorma;
     ui4 *fep;
 
@@ -601,11 +609,9 @@ int crixus_main(int argc, char** argv){
 					pos.clear();
 					norm.clear();
 					epv.clear();
-					ddum.clear();
-					idum.clear();
 					for(int i=0;i<3;i++){
-						ddum.push_back(0.);
-						idum.push_back(0);
+            ddum[i] = 0.;
+            idum[i] = 0;
 					}
 
 					// read data
@@ -660,8 +666,8 @@ int crixus_main(int argc, char** argv){
 								fep[i].a[j] = epv[i][j];
 							}
 						}
-						if(i<nvert){
-							for(int j=0; j<3; j++)
+						if(i<fnvert){
+							for(unsigned int j=0; j<3; j++)
 								fposa[i].a[j] = pos[i][j];
 						}
 					}
@@ -677,7 +683,7 @@ int crixus_main(int argc, char** argv){
           fep = new ui4 [fnbe];
           fnorma = new uf4 [fnbe];
           fposa = new uf4 [fnvert];
-          for(int i=0; i<max(fnvert,fnbe); i++){
+          for(unsigned int i=0; i<max(fnvert,fnbe); i++){
             if(i<fnbe){
               fep[i] = ep[i];
               fnorma[i] = norma[i];
@@ -701,11 +707,9 @@ int crixus_main(int argc, char** argv){
 				pos.clear();
 				norm.clear();
 				epv.clear();
-				ddum.clear();
-				idum.clear();
 				for(int i=0;i<3;i++){
-					ddum.push_back(0.);
-					idum.push_back(0);
+					ddum[i] = 0.;
+					idum[i] = 0;
 				}
 
 				// read data
@@ -937,6 +941,7 @@ int crixus_main(int argc, char** argv){
 		buf[k].ep3 = nfluid+ep[i-nvert].a[2] - nvshift[ep[i-nvert].a[2]];
 		k++;
 	}
+  delete [] nvshift;
 #ifdef bdebug
 	//debug
 	for(unsigned int i=0; i<debugs; i++){
