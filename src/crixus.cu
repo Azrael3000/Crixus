@@ -286,6 +286,13 @@ int crixus_main(int argc, char** argv){
 	cout << "\n\tNormals information:" << endl;
 	cout << "\tPositive (n.(0,0,1)) minimum z: " << xminp << " (" << nminp << ")\n";
 	cout << "\tNegative (n.(0,0,1)) minimum z: " << xminn << " (" << nminn << ")\n\n";
+  if(fabs(nminp) < 1e-6 && fabs(nminn) < 1e-6 && fabs(xminp-1e10) < 1e-6 && fabs(xminn-1e10) < 1e-6){
+    cout << "\t=====================================================" << endl;
+    cout << "\t!!! WARNING !!!" << endl;
+    cout << "\tCould not read normals properly." << endl;
+    cout << "\tMaybe a Blender STL file? Save with ParaView instead." << endl;
+    cout << "\t=====================================================\n" << endl;
+  }
 	char cont= 'n';
 	do{
 		if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
