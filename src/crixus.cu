@@ -732,7 +732,7 @@ int crixus_main(int argc, char** argv){
 							for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
 							diff = sqrt(diff);
 							if(diff < 1e-5*dr){
-								idum[j] = k;
+								idum[j] = k+fnvert;
 								found = true;
 								break;
 							}
@@ -740,7 +740,7 @@ int crixus_main(int argc, char** argv){
 						}
 						if(!found){
 							pos.push_back(ddum);
-							idum[j] = k;
+							idum[j] = k+fnvert;
 						}
 					}
 					epv.push_back(idum);
@@ -804,9 +804,15 @@ int crixus_main(int argc, char** argv){
 				pos.clear();
 				epv.clear();
 				norm.clear();
-				CUDA_SAFE_CALL( cudaMalloc((void **) &norm_d,   nbe*sizeof(uf4)) );
-				CUDA_SAFE_CALL( cudaMalloc((void **) &pos_d , nvert*sizeof(uf4)) );
-				CUDA_SAFE_CALL( cudaMalloc((void **) &ep_d  ,   nbe*sizeof(ui4)) );
+        cout << fnvert << " fnvert , fnbe " << fnbe << endl;
+        for(int i=0;i<fnbe;i++)
+          cout << i<< " norm, epv " << fnorma[i].a[0] << " " << fnorma[i].a[1] << " " << fnorma[i].a[2] <<
+                  " " << fep[i].a[0] << " " << fep[i].a[1] << " " << fep[i].a[2] << endl;
+        for(int i=0; i<fnvert; i++)
+          cout << i << " i, pos " << fposa[i].a[0] << " " << fposa[i].a[1] << "  " << fposa[i].a[2] << endl;
+				CUDA_SAFE_CALL( cudaMalloc((void **) &norm_d,   fnbe*sizeof(uf4)) );
+				CUDA_SAFE_CALL( cudaMalloc((void **) &pos_d , fnvert*sizeof(uf4)) );
+				CUDA_SAFE_CALL( cudaMalloc((void **) &ep_d  ,   fnbe*sizeof(ui4)) );
 				CUDA_SAFE_CALL( cudaMemcpy((void *) norm_d, (void *) fnorma,   fnbe*sizeof(uf4), cudaMemcpyHostToDevice) );
 				CUDA_SAFE_CALL( cudaMemcpy((void *) pos_d , (void *) fposa , fnvert*sizeof(uf4), cudaMemcpyHostToDevice) );
 				CUDA_SAFE_CALL( cudaMemcpy((void *) ep_d  , (void *) fep   ,   fnbe*sizeof(ui4), cudaMemcpyHostToDevice) );
@@ -824,7 +830,7 @@ int crixus_main(int argc, char** argv){
         nfi = 0;
         CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
-        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, fnvert, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f);
+        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f);
 
         CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
         nfluid += nfi;

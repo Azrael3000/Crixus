@@ -550,7 +550,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   return;
 }
 
-__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, int nvert, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock)
+__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock)
 {
   // this function is responsible for filling a complex geometry with fluid
   // place seed point
@@ -592,9 +592,9 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
             ioff += i;
             joff += j;
             koff += k;
-						if(ioff<0 || ioff>dimg.a[0] || 
-						   joff<0 || joff>dimg.a[1] || 
-							 koff<0 || koff>dimg.a[2]   )
+						if(ioff<0 || ioff>=dimg.a[0] || 
+						   joff<0 || joff>=dimg.a[1] || 
+							 koff<0 || koff>=dimg.a[2]   )
 							continue;
             int indOff = ioff + joff*dimg.a[0] + koff*dimg.a[0]*dimg.a[1];
             // check whether position is filled
@@ -637,30 +637,6 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
 		lock.unlock();
 	}
   
-  uf4 s,e, n,v[3];
-  s.a[0] = -1.;
-  s.a[1] =  0.;
-  s.a[2] =  0.;
-  e.a[0] =  1.;
-  e.a[1] =  0.;
-  e.a[2] =  0.;
-  n.a[0] =  1.;
-  n.a[1] =  0.;
-  n.a[2] =  0.;
-  v[0].a[0] = 0.;
-  v[0].a[1] =-1.;
-  v[0].a[2] =-1.;
-  v[1].a[0] = 0.;
-  v[1].a[1] = 1.;
-  v[1].a[2] =-1.;
-  v[2].a[0] = 0.;
-  v[2].a[1] = 0.;
-  v[2].a[2] = 1.;
-  bool test = checkTriangleCollision(s,e,n,v,0.);
-  if(test)
-    *nfi = 0;
-  else
-    *nfi = 1;
   return;
 }
 
@@ -668,18 +644,36 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
   // checks whether the line-segment determined by s. and e. intersects any available triangle
   bool collision = false;
 	uf4 s, e, n, v[3];
-	s.a[0] = ((float)si)/((float)dimg.a[0]-1.)*dr + (*dmin).a[0];
-	s.a[1] = ((float)sj)/((float)dimg.a[1]-1.)*dr + (*dmin).a[1];
-	s.a[2] = ((float)sk)/((float)dimg.a[2]-1.)*dr + (*dmin).a[2];
-	e.a[0] = ((float)ei)/((float)dimg.a[0]-1.)*dr + (*dmin).a[0];
-	e.a[1] = ((float)ej)/((float)dimg.a[1]-1.)*dr + (*dmin).a[1];
-	e.a[2] = ((float)ek)/((float)dimg.a[2]-1.)*dr + (*dmin).a[2];
+	s.a[0] = ((float)si)*dr + (*dmin).a[0];
+	s.a[1] = ((float)sj)*dr + (*dmin).a[1];
+	s.a[2] = ((float)sk)*dr + (*dmin).a[2];
+	e.a[0] = ((float)ei)*dr + (*dmin).a[0];
+	e.a[1] = ((float)ej)*dr + (*dmin).a[1];
+	e.a[2] = ((float)ek)*dr + (*dmin).a[2];
 
   // loop through all triangles
 	for(int i=0; i<nbe; i++){
 		n = norm[i];
 		for(int j=0; j<3; j++)
 			v[j] = pos[ep[i].a[j]];
+/*    e.a[0] = 0.;
+    e.a[1] = 1.;
+    e.a[2] = 0.;
+    s.a[0] = 0.;
+    s.a[1] = 1.;
+    s.a[2] = -0.125;  
+    v[0].a[0] = -2.;
+    v[0].a[1] = -2.;
+    v[0].a[2] = 0;
+    v[1].a[0] = -2.;
+    v[1].a[1] = 4.;
+    v[1].a[2] = 0;
+    v[2].a[0] = 5.;
+    v[2].a[1] = -2.;
+    v[2].a[2] = 0;
+    n.a[0] = 0.;
+    n.a[1] = 0.;
+    n.a[2] = 1.;*/
 
 		collision = checkTriangleCollision(s, e, n, v, eps);
 
@@ -697,7 +691,7 @@ __device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, uf4 *v, float eps){
   t_s = dot(n,s) + d;
   t_e = dot(n,e) + d;
   // step 2: first check t_s*t_e > 0 => no intersection
-  if(t_s*t_e > -eps)
+  if(t_s*t_e > eps)
     return false;
   // step 3: calculate i, e_tilde[0:1], nPrime_i[0:1]
   int i = -1; // i = maxloc(n_j)
@@ -719,19 +713,21 @@ __device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, uf4 *v, float eps){
   e_tilde[1].a[k] = v[2].a[k] - v[0].a[k];
   uf4 nPrime_i;
   for(int l=0; l<2; l++){
-    nPrime_i.a[l] = e_tilde[l].a[j]*((s.a[k]-v[l].a[k])*(t_s-t_e)+t_s*(e.a[k]-s.a[k])) -
-                    e_tilde[l].a[k]*((s.a[j]-v[l].a[j])*(t_s-t_e)+t_s*(e.a[j]-s.a[j]));
+    nPrime_i.a[l] = e_tilde[l].a[j]*((s.a[k]-v[0].a[k])*(t_s-t_e)+t_s*(e.a[k]-s.a[k])) -
+                    e_tilde[l].a[k]*((s.a[j]-v[0].a[j])*(t_s-t_e)+t_s*(e.a[j]-s.a[j]));
   }
-  // step 4: second check n_{0,i} * n_{1,i} < 0 => no intersection
-  if(nPrime_i.a[0]*nPrime_i.a[1] < eps)
+  // step 4: second check n_{0,i} * n_{1,i} > 0 => no intersection
+  if(nPrime_i.a[0]*nPrime_i.a[1] > eps)
     return false;
   // step 5: calculate e_tilde[2], nPrime_i[2]
   e_tilde[2].a[j] = v[1].a[j] - v[2].a[j];
   e_tilde[2].a[k] = v[1].a[k] - v[2].a[k];
-  nPrime_i.a[2] = e_tilde[2].a[j]*((s.a[k]-v[2].a[k])*(t_s-t_e)+t_s*(e.a[k]-s.a[k])) -
-                  e_tilde[2].a[k]*((s.a[j]-v[2].a[j])*(t_s-t_e)+t_s*(e.a[j]-s.a[j]));
-  // step 6: third check n_{0,i} * n_{2,i} < 0 => no intersection
-  if(nPrime_i.a[0]*nPrime_i.a[2] < eps)
+  nPrime_i.a[0] = e_tilde[0].a[j]*((s.a[k]-v[1].a[k])*(t_s-t_e)+t_s*(e.a[k]-s.a[k])) -
+                  e_tilde[0].a[k]*((s.a[j]-v[1].a[j])*(t_s-t_e)+t_s*(e.a[j]-s.a[j]));
+  nPrime_i.a[2] = e_tilde[2].a[j]*((s.a[k]-v[1].a[k])*(t_s-t_e)+t_s*(e.a[k]-s.a[k])) -
+                  e_tilde[2].a[k]*((s.a[j]-v[1].a[j])*(t_s-t_e)+t_s*(e.a[j]-s.a[j]));
+  // step 6: third check n_{0,i} * n_{2,i} > 0 => no intersection
+  if(nPrime_i.a[0]*nPrime_i.a[2] > eps)
     return false;
   // step 7: collision detected
   return true;
