@@ -550,7 +550,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   return;
 }
 
-__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock)
+__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, float *dist, ui4 *ind, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock)
 {
   // this function is responsible for filling a complex geometry with fluid
   // place seed point
@@ -570,7 +570,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
 
   int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
   int i,j,k,tmp;
-  bool bdebug = false;
+
   while(((int)ceil(arrayInd/((float)bitPerUint)))<dimg.a[0]*dimg.a[1]*dimg.a[2]){
     // loop through all bits of the array entry with index arrayInd
     for(int ii=0, bitInd=arrayInd*bitPerUint; ii<bitPerUint; ii++, bitInd++){
@@ -600,7 +600,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
             // check whether position is filled
             if(fpos[indOff/bitPerUint] & (1<<(indOff%bitPerUint))){
               // check for collision with triangle
-              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, pos, nbe, dr, dmin, dimg, eps);
+              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, dist, ind, pos, nbe, dr, dmin, dimg, eps);
               if(!collision){
                 fpos[arrayInd] = fpos[arrayInd] | bit;
                 nfi_tmp++;
@@ -612,7 +612,6 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
         else // no longer in big box
           break;
       }
-      if(bdebug) break;
     }
     arrayInd += blockDim.x*gridDim.x;
   }
@@ -640,7 +639,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
   return;
 }
 
-__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps){
+__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, float *dist, ui4 *ind, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps){
   // checks whether the line-segment determined by s. and e. intersects any available triangle
   bool collision = false;
 	uf4 s, e, n, v[3];
@@ -656,26 +655,10 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
 		n = norm[i];
 		for(int j=0; j<3; j++)
 			v[j] = pos[ep[i].a[j]];
-/*    e.a[0] = 0.;
-    e.a[1] = 1.;
-    e.a[2] = 0.;
-    s.a[0] = 0.;
-    s.a[1] = 1.;
-    s.a[2] = -0.125;  
-    v[0].a[0] = -2.;
-    v[0].a[1] = -2.;
-    v[0].a[2] = 0;
-    v[1].a[0] = -2.;
-    v[1].a[1] = 4.;
-    v[1].a[2] = 0;
-    v[2].a[0] = 5.;
-    v[2].a[1] = -2.;
-    v[2].a[2] = 0;
-    n.a[0] = 0.;
-    n.a[1] = 0.;
-    n.a[2] = 1.;*/
+    float tri_d = dist[i];
+    ui4 tri_ind = ind[i];
 
-		collision = checkTriangleCollision(s, e, n, v, eps);
+		collision = checkTriangleCollision(s, e, n, tri_d, tri_ind, v, eps);
 
 		if(collision)
 			break;
@@ -683,49 +666,43 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
   return collision;
 }
 
-__device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, uf4 *v, float eps){
-  // algorithm for triangle line-segment collision check
+__device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, float d, ui4 ind, uf4 *v, float eps){
+  // algorithm for triangle line-segment collision check, Chirkov [2005]
   // step 1: calculate t_s, t_e
-  float d, t_e, t_s;
-  d = -dot(n,v[0]);
-  t_s = dot(n,s) + d;
-  t_e = dot(n,e) + d;
+  float t_e, t_s;
+  //d = -dot(n,v[0]);
+  t_s = n.a[0]*s.a[0] + n.a[1]*s.a[1] + n.a[2]*s.a[2] + d;
+  t_e = n.a[0]*e.a[0] + n.a[1]*e.a[1] + n.a[2]*e.a[2] + d;
   // step 2: first check t_s*t_e > 0 => no intersection
   if(t_s*t_e > eps)
     return false;
-  // step 3: calculate i, e_tilde[0:1], nPrime_i[0:1]
-  int i = -1; // i = maxloc(n_j)
-  float maxval = -1.;
+  // step 3: e_tilde[0:1], nPrime_i[0:1](v[0])
+  float dist = t_s - t_e;
+  int j = ind.a[1];
+  int k = ind.a[2];
+  float tsTes[3];
+  tsTes[j] = t_s*(e.a[j]-s.a[j]);
+  tsTes[k] = t_s*(e.a[k]-s.a[k]);
   uf4 e_tilde[3];
-  for(int ii=0; ii<3; ii++){
-    if(fabs(n.a[ii]) > maxval){
-      maxval = fabs(n.a[ii]);
-      i = ii;
-    }
-  }
-  int j = 0, k; // other indices (different from i)
-  if(i==j)
-    j = 1;
-  k = 3 - (i+j);
   e_tilde[0].a[j] = v[1].a[j] - v[0].a[j];
   e_tilde[0].a[k] = v[1].a[k] - v[0].a[k];
   e_tilde[1].a[j] = v[2].a[j] - v[0].a[j];
   e_tilde[1].a[k] = v[2].a[k] - v[0].a[k];
   uf4 nPrime_i;
-  for(int l=0; l<2; l++){
-    nPrime_i.a[l] = e_tilde[l].a[j]*((s.a[k]-v[0].a[k])*(t_s-t_e)+t_s*(e.a[k]-s.a[k])) -
-                    e_tilde[l].a[k]*((s.a[j]-v[0].a[j])*(t_s-t_e)+t_s*(e.a[j]-s.a[j]));
-  }
+  nPrime_i.a[0] = e_tilde[0].a[j]*((s.a[k]-v[0].a[k])*dist+tsTes[k]) -
+                  e_tilde[0].a[k]*((s.a[j]-v[0].a[j])*dist+tsTes[j]);
+  nPrime_i.a[1] = e_tilde[1].a[j]*((s.a[k]-v[0].a[k])*dist+tsTes[k]) -
+                  e_tilde[1].a[k]*((s.a[j]-v[0].a[j])*dist+tsTes[j]);
   // step 4: second check n_{0,i} * n_{1,i} > 0 => no intersection
   if(nPrime_i.a[0]*nPrime_i.a[1] > eps)
     return false;
-  // step 5: calculate e_tilde[2], nPrime_i[2]
+  // step 5: calculate e_tilde[2], nPrime_i[0,2](v[1])
   e_tilde[2].a[j] = v[1].a[j] - v[2].a[j];
   e_tilde[2].a[k] = v[1].a[k] - v[2].a[k];
-  nPrime_i.a[0] = e_tilde[0].a[j]*((s.a[k]-v[1].a[k])*(t_s-t_e)+t_s*(e.a[k]-s.a[k])) -
-                  e_tilde[0].a[k]*((s.a[j]-v[1].a[j])*(t_s-t_e)+t_s*(e.a[j]-s.a[j]));
-  nPrime_i.a[2] = e_tilde[2].a[j]*((s.a[k]-v[1].a[k])*(t_s-t_e)+t_s*(e.a[k]-s.a[k])) -
-                  e_tilde[2].a[k]*((s.a[j]-v[1].a[j])*(t_s-t_e)+t_s*(e.a[j]-s.a[j]));
+  nPrime_i.a[0] = e_tilde[0].a[j]*((s.a[k]-v[1].a[k])*dist+tsTes[k]) -
+                  e_tilde[0].a[k]*((s.a[j]-v[1].a[j])*dist+tsTes[j]);
+  nPrime_i.a[2] = e_tilde[2].a[j]*((s.a[k]-v[1].a[k])*dist+tsTes[k]) -
+                  e_tilde[2].a[k]*((s.a[j]-v[1].a[j])*dist+tsTes[j]);
   // step 6: third check n_{0,i} * n_{2,i} > 0 => no intersection
   if(nPrime_i.a[0]*nPrime_i.a[2] > eps)
     return false;
@@ -733,11 +710,33 @@ __device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, uf4 *v, float eps){
   return true;
 }
 
-__device__ float dot(uf4 a, uf4 b){
-  float sp = 0.;
-  for(int i=0; i<3; i++)
-    sp += a.a[i]*b.a[i];
-  return sp;
+__global__ void perpareTriangles(uf4 *norm, uf4 *pos, ui4 *ep, ui4 *ind, float *dist, unsigned int nbe){
+  int ii = threadIdx.x + blockIdx.x*blockDim.x;
+  while(ii<nbe){
+    // Get main axis index
+    int i = -1; // i = maxloc(n_j)
+    float maxval = -1.;
+    for(int ij=0; ij<3; ij++){
+      if(fabs(norm[ii].a[ij]) > maxval){
+        maxval = fabs(norm[ii].a[ij]);
+        i = ij;
+      }
+    }
+    int j = 0, k; // other indices (different from i)
+    if(i==j)
+      j = 1;
+    k = 3 - (i+j);
+    ind[ii].a[0] = i;
+    ind[ii].a[1] = j;
+    ind[ii].a[2] = k;
+    // Calculate constant d for the plane spanned by the triangle
+    int v0 = ep[ii].a[0];
+    dist[ii] = norm[ii].a[0]*pos[v0].a[0] +
+               norm[ii].a[1]*pos[v0].a[1] +
+               norm[ii].a[2]*pos[v0].a[2];
+    ii += blockDim.x*gridDim.x;
+  }
+  return;
 }
 
 #endif
