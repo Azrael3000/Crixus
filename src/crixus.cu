@@ -2,10 +2,13 @@
  *
  * TODO LIST:
  * - Version 0.5:
+ *   - filling via bit field
  *   - filling of complex geometries
- *   - specification of fluid box
+ *   - specification of fluid container
  * - Version 0.6:
  *   - in/outflow option
+ * - Version 0.7:
+ *   - CSG for volume computation
  *
 \***********************************/
 
@@ -35,8 +38,8 @@ int crixus_main(int argc, char** argv){
 	cout << "\t*          C R I X U S          *" << endl;
 	cout << "\t*                               *" << endl;
 	cout << "\t*********************************" << endl;
-	cout << "\t* Version: 0.5a                 *" << endl;
-	cout << "\t* Date   : 11.06.2012           *" << endl;
+	cout << "\t* Version: 0.5b                 *" << endl;
+	cout << "\t* Date   : 14.06.2012           *" << endl;
 	cout << "\t* Authors: Arno Mayrhofer       *" << endl;
 	cout << "\t*          Christophe Kassiotis *" << endl;
 	cout << "\t*          F-X Morel            *" << endl;
@@ -64,7 +67,7 @@ int crixus_main(int argc, char** argv){
 	
 	//looking for cuda devices without timeout
 	cout << "Selecting GPU ...";
-	int dcount, maxblock, maxthread;
+	int dcount, maxblock=0, maxthread;
 	maxthread = threadsPerBlock;
 	bool found = false;
 	CUDA_SAFE_CALL( cudaGetDeviceCount(&dcount) );
@@ -522,6 +525,27 @@ int crixus_main(int argc, char** argv){
 	eps = 1e-10;
 	for(unsigned int i=0; i<3; i++)
 		eps = max((dmax.a[i]-dmin.a[i])*1e-6,eps);
+	cont = 'n';
+	do{
+		if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
+		cout << "Specify fluid container (y/n): ";
+		cin >> cont;
+		if(cont=='n') set = false;
+	}while(cont!='y' && cont!='n');
+
+  if(set){
+    cout << "Specify fluid container:" << endl;
+    cout << "Min coordinates (x,y,z): ";
+    // From here on dmin, dmax represent the fluid container and no longer the domain container.
+    cin >> dmin.a[0] >> dmin.a[1] >> dmin.a[2];
+    cout << "Max coordinates (x,y,z): ";
+    cin >> dmax.a[0] >> dmax.a[1] >> dmax.a[2];
+    CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d , (void *) &dmin    ,       sizeof(float4), cudaMemcpyHostToDevice) );
+    CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d , (void *) &dmax    ,       sizeof(float4), cudaMemcpyHostToDevice) );
+  }
+  else{
+    cout << "Using whole geometry as fluid container." << endl;
+  }
 
 	maxfn = (int)floor((dmax.a[0]-dmin.a[0]+eps)/dr+1)*floor((dmax.a[1]-dmin.a[1]+eps)/dr+1)*floor((dmax.a[2]-dmin.a[2]+eps)/dr+1);
 	maxf = (int)ceil(float(maxfn)/8./((float)sizeof(unsigned int)));
@@ -531,6 +555,7 @@ int crixus_main(int argc, char** argv){
   for(unsigned int i=0; i<maxf; i++) fpos[i] = 0;
   CUDA_SAFE_CALL( cudaMemcpy((void *) fpos_d, (void *) fpos, maxf*sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
+  set = true;
 	while(set){
 		xmin = xmax = ymin = ymax = zmin = zmax = 0.;
 		if(bfgeom){
@@ -550,9 +575,9 @@ int crixus_main(int argc, char** argv){
 		}
 
     // data for geometry bounding grid and fluid bounding grid
-    unsigned int fnvert, fnbe;
-    uf4 *fposa, *fnorma;
-    ui4 *fep;
+    unsigned int fnvert=0, fnbe=0;
+    uf4 *fposa=NULL, *fnorma=NULL;
+    ui4 *fep=NULL;
 
 		if(opt==1){ // fluid based on rectangular box
 			cout << "Enter dimensions of fluid box:" << endl;
