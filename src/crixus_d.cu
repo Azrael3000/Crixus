@@ -739,4 +739,51 @@ __global__ void perpareTriangles(uf4 *norm, uf4 *pos, ui4 *ep, ui4 *ind, float *
   return;
 }
 
+__global__ void identifyInOutFlowSegments (uf4 *pos, int nvert, int nbe, uf4 *outpos, ui4 *outep, int outnbe, uf4 *inpos, ui4 *inep, int innbe, float eps, short *inout){
+	int id = threadIdx.x + blockIdx.x*blockDim.x;
+	uf4 vb[3];
+	uf4 spos;
+	while(id < nbe){
+		spos = pos[nvert+id];
+		for(int i=0; i<outnbe; i++){
+			for(int j=0; j<3; j++)
+				vb[j] = outpos[outep[i].a[j]];
+			if(segInTri(vb,spos,eps)){
+				inout[id] += 1;
+				break;
+			}
+		}
+		for(int i=0; i<innbe; i++){
+			for(int j=0; j<3; j++)
+				vb[j] = inpos[inep[i].a[j]];
+			if(segInTri(vb,spos,eps)){
+				inout[id] += 2;
+				break;
+			}
+		}
+		id += blockDim.x*gridDim.x;
+	}
+	return;
+}
+
+__device__ bool segInTri(uf4 *vb, uf4 spos, float eps){
+	float dot00, dot01, dot02, dot11, dot12, invdet, u, v;
+	dot00 = dot01 = dot02 = dot11 = dot12 = 0.;
+	for(int i=0; i<3; i++){
+		float ba = (vb[1].a[i] - vb[0].a[i]);
+		float ca = (vb[2].a[i] - vb[0].a[i]);
+		float pa = ( spos.a[i] - vb[0].a[i]);
+		dot00 += ba*ba;
+		dot01 += ba*ca;
+		dot02 += ba*pa;
+		dot11 += ca*ca;
+		dot12 += ca*pa;
+	}
+	invdet = 1.0/(dot00*dot11-dot01*dot01)
+	u = (dot11*dot02-dot01*dot12)*invdet
+	v = (dot00*dot12-dot01*dot02)*invdet
+	if( u < -eps || v < -eps || u+v > 1+eps ) return false;
+	return true;
+}
+
 #endif
