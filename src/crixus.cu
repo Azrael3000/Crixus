@@ -7,11 +7,6 @@
  *   - specification of fluid container
  * - Version 0.6:
  *   - in/outflow option
- *   - replace uf4 by uf3 (class with float[3])
- *   - while doing calculations on kernel check
- *     files on host and maybe read them already
- *   - clean up code (free norm, ep when they
- *     are no longer needed and not at the end)
  * - Version 0.7:
  *   - CSG for volume computation
  *
@@ -416,290 +411,14 @@ int crixus_main(int argc, char** argv){
 	cudaFree(vol_d   );
 	cudaFree(surf_d  );
 
-	// searching for in/outflow areas
-	cout << "\nChecking whether outflow grid is available ...";
-	bool boutflow = false;
-	int flen = strlen(argv[1]);
-	char *cfname;
-  cfname = new char[flen+9];
-	strncpy(cfname, argv[1], flen-4);
-	cfname[flen-4] = '_';
-	cfname[flen-3] = 'o';
-	cfname[flen-2] = 'u';
-	cfname[flen-1] = 't';
-	cfname[flen-0] = 'g';
-	cfname[flen+1] = 'r';
-	cfname[flen+2] = 'i';
-	cfname[flen+3] = 'd';
-	cfname[flen+8] = '\0';
-	strncpy(cfname+flen+4, argv[1]+flen-4, 4);
-	stl_file.open(cfname, ios::in);
-	if(!stl_file.is_open()){
-		boutflow = false;
-		cout << " [NO]" << endl;
-	}
-	else{
-		boutflow = true;
-		cout << " [YES]" << endl;
-    cout << "Checking whether outflow stl file is binary ...";
-    bool issolid = true;
-    char header[6] = "solid";
-    for (int i=0; i<5; i++){
-      char dum;
-      stl_file.read((char *)&dum, sizeof(char));
-      if(dum!=header[i]){
-        issolid = false;
-        break;
-      }
-    }
-    stl_file.close();
-    if(issolid){
-      cout << " [NO]" << endl;
-      boutflow = false;
-    }
-    else{
-      cout << " [YES]" << endl;
-      // reopen file in binary mode
-      stl_file.open(cfname, ios::in | ios::binary);
-    }
-	}
-	int outnvert, outnbe;
-	uf4 *outposa;
-	ui4 *outep;
-	if(boutflow){
-		// read header
-		for (int i=0; i<20; i++){
-			float dum;
-			stl_file.read((char *)&dum, sizeof(float));
-		}
-		// get number of facets
-		stl_file.read((char *)&num_of_facets, sizeof(int));
-		cout << "Reading " << num_of_facets << " facets of outflow geometry ...";
-
-		// define variables
-		pos.clear();
-		epv.clear();
-		for(int i=0;i<3;i++){
-      ddum[i] = 0.;
-      idum[i] = 0;
-		}
-
-		// read data
-		through = 0;
-		while ((through < num_of_facets) & (!stl_file.eof()))
-		{
-			for (int i=0; i<12; i++)
-			{
-				stl_file.read((char *)&m_v_floats[i], sizeof(float));
-			}
-			for(int j=0;j<3;j++){
-				for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
-				int k = 0;
-				bool found = false;
-				for(it = pos.begin(); it < pos.end(); it++){
-					float diff = 0;
-					for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
-					diff = sqrt(diff);
-					if(diff < 1e-5*dr){
-						idum[j] = k;
-						found = true;
-						break;
-					}
-					k++;
-				}
-				if(!found){
-					pos.push_back(ddum);
-					idum[j] = k;
-				}
-			}
-			epv.push_back(idum);
-			stl_file.read((char *)&attribute, sizeof(short));
-			through++;
-		}
-		stl_file.close();
-		if(num_of_facets != epv.size()){
-			cout << " [FAILED]" << endl;
-			return READ_ERROR;
-		}
-		outnvert = pos.size();
-		outnbe   = epv.size();
-		//create and copy vectors to arrays
-		outposa  = new uf4   [outnvert];
-		outep    = new ui4   [outnbe];
-		for(unsigned int i=0; i<max(outnvert,outnbe); i++){
-			if(i<outnbe){
-				for(int j=0; j<3; j++){
-					outep[i].a[j] = epv[i][j];
-				}
-			}
-			if(i<outnvert){
-				for(unsigned int j=0; j<3; j++)
-					outposa[i].a[j] = pos[i][j];
-			}
-		}
-		pos.clear();
-    epv.clear();
-    cout << " [OK]" << endl;
-	}
-
-	cout << "\nChecking whether inflow grid is available ...";
-	bool binflow = false;
-	delete [] cfname;
-  cfname = new char[flen+8];
-	strncpy(cfname, argv[1], flen-4);
-	ifstream stl_in_file;
-	cfname[flen-4] = '_';
-	cfname[flen-3] = 'i';
-	cfname[flen-2] = 'n';
-	cfname[flen-1] = 'g';
-	cfname[flen-0] = 'r';
-	cfname[flen+1] = 'i';
-	cfname[flen+2] = 'd';
-	cfname[flen+7] = '\0';
-	strncpy(cfname+flen+3, argv[1]+flen-4, 4);
-	stl_in_file.open(cfname, ios::in);
-	if(!stl_in_file.is_open()){
-		binflow = false;
-		cout << " [NO]" << endl;
-	}
-	else{
-		binflow = true;
-		cout << " [YES]" << endl;
-    cout << "Checking whether inflow stl file is binary ...";
-    bool issolid = true;
-    char header[6] = "solid";
-    for (int i=0; i<5; i++){
-      char dum;
-      stl_in_file.read((char *)&dum, sizeof(char));
-      if(dum!=header[i]){
-        issolid = false;
-        break;
-      }
-    }
-    stl_in_file.close();
-    if(issolid){
-      cout << " [NO]" << endl;
-      binflow = false;
-    }
-    else{
-      cout << " [YES]" << endl;
-      // reopen file in binary mode
-      stl_in_file.open(cfname, ios::in | ios::binary);
-    }
-	}
-	int innvert, innbe;
-	uf4 *inposa;
-	ui4 *inep;
-	if(binflow){
-		// read header
-		for (int i=0; i<20; i++){
-			float dum;
-			stl_in_file.read((char *)&dum, sizeof(float));
-		}
-		// get number of facets
-		stl_in_file.read((char *)&num_of_facets, sizeof(int));
-		cout << "Reading " << num_of_facets << " facets of inflow geometry ...";
-
-		// define variables
-		pos.clear();
-		epv.clear();
-		for(int i=0;i<3;i++){
-      ddum[i] = 0.;
-      idum[i] = 0;
-		}
-
-		// read data
-		through = 0;
-		while ((through < num_of_facets) & (!stl_in_file.eof()))
-		{
-			for (int i=0; i<12; i++)
-			{
-				stl_in_file.read((char *)&m_v_floats[i], sizeof(float));
-			}
-			for(int j=0;j<3;j++){
-				for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
-				int k = 0;
-				bool found = false;
-				for(it = pos.begin(); it < pos.end(); it++){
-					float diff = 0;
-					for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
-					diff = sqrt(diff);
-					if(diff < 1e-5*dr){
-						idum[j] = k;
-						found = true;
-						break;
-					}
-					k++;
-				}
-				if(!found){
-					pos.push_back(ddum);
-					idum[j] = k;
-				}
-			}
-			epv.push_back(idum);
-			stl_in_file.read((char *)&attribute, sizeof(short));
-			through++;
-		}
-		stl_in_file.close();
-		if(num_of_facets != epv.size()){
-			cout << " [FAILED]" << endl;
-			return READ_ERROR;
-		}
-		innvert = pos.size();
-		innbe   = epv.size();
-		//create and copy vectors to arrays
-		inposa  = new uf4   [innvert];
-		inep    = new ui4   [innbe];
-		for(unsigned int i=0; i<max(innvert,innbe); i++){
-			if(i<innbe){
-				for(int j=0; j<3; j++){
-					inep[i].a[j] = epv[i][j];
-				}
-			}
-			if(i<innvert){
-				for(unsigned int j=0; j<3; j++)
-					inposa[i].a[j] = pos[i][j];
-			}
-		}
-		pos.clear();
-    epv.clear();
-    cout << " [OK]" << endl;
-	}
-
-	// after reading in data for in/outflow copy data to gpu and identify interior boundary segments
-	short *inout;
-	if(binflow || boutflow){
-		short *inout_d;
-		uf4 *pos_in_d, *pos_out_d;
-		ui4 *ep_in_d, *ep_out_d;
-		inout = new short[nbe];
-		CUDA_SAFE_CALL( cudaMalloc((void **) &inout_d  ,      nbe*sizeof(short)) );
-		CUDA_SAFE_CALL( cudaMalloc((void **) &inpos_d  ,  innvert*sizeof(uf4  )) );
-		CUDA_SAFE_CALL( cudaMalloc((void **) &outpos_d , outnvert*sizeof(uf4  )) );
-		CUDA_SAFE_CALL( cudaMalloc((void **) &inep_d   ,    innbe*sizeof(uf4  )) );
-		CUDA_SAFE_CALL( cudaMalloc((void **) &outep_d  ,   outnbe*sizeof(ui4  )) );
-		CUDA_SAFE_CALL( cudaMemcpy((void *) outposa, (void *) outpos_d, outnvert*sizeof(uf4) , cudaMemcpyHostToDevice) );
-		CUDA_SAFE_CALL( cudaMemcpy((void *) outep  , (void *) outep_d ,   outnbe*sizeof(ui4) , cudaMemcpyHostToDevice) );
-		CUDA_SAFE_CALL( cudaMemcpy((void *) inposa , (void *) inpos_d ,  innvert*sizeof(uf4) , cudaMemcpyHostToDevice) );
-		CUDA_SAFE_CALL( cudaMemcpy((void *) inep   , (void *) inep_d  ,    innbe*sizeof(ui4) , cudaMemcpyHostToDevice) );
-		numBlocks = (int) ceil((float)nbe/(float)numThreads);
-		numBlocks = min(numBlocks,maxblock);
-
-		identifyInOutFlowSegments<<<numBlocks, numThreads>>> (pos_d, nvert, nbe, outpos_d, outep_d, outnbe, inpos_d, inep_d, innbe, eps, inout_d);
-	
-		CUDA_SAFE_CALL( cudaMemcpy((void *) inout_d, (void *) inout, nbe*sizeof(short) , cudaMemcpyDeviceToHost) );
-		cudaFree( inout     );
-		cudaFree( pos_in_d  );
-		cudaFree( pos_out_d );
-		cudaFree( ep_in_d   );
-		cudaFree( ep_out_d  );
-	}
-
 	//setting up fluid particles
 	cout << "\nDefining fluid particles ..." << endl;
 
 	cout << "Checking wether coarse grid is available ...";
 	bool bcoarse = false;
+	int flen = strlen(argv[1]);
+	char *cfname;
+  cfname = new char[flen+8];
 	strncpy(cfname, argv[1], flen-4);
 	cfname[flen-4] = '_';
 	cfname[flen-3] = 'c';
@@ -907,8 +626,8 @@ int crixus_main(int argc, char** argv){
 			if(firstfgeom){
 				firstfgeom = false;
 
-				cudaFree(pos_d   );
 				cudaFree(norm_d  );
+				cudaFree(pos_d   );
 				cudaFree(ep_d    );
 
 				// if coarse grid for geometry is available read it
@@ -1129,7 +848,6 @@ int crixus_main(int argc, char** argv){
 				CUDA_SAFE_CALL( cudaMemcpy((void *) ep_d  , (void *) fep   ,   fnbe*sizeof(ui4), cudaMemcpyHostToDevice) );
         
         numBlocks = (int) ceil((float)fnbe/(float)numThreads);
-				numBlocks = min(numBlocks,maxblock);
         perpareTriangles<<<numBlocks, numThreads>>> (norm_d, pos_d, ep_d, ind_d, dist_d, fnbe);
 
         numBlocks = (int) ceil((float)maxf/(float)numThreads);
@@ -1173,10 +891,12 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) fpos, (void *) fpos_d, maxf*sizeof(unsigned int), cudaMemcpyDeviceToHost) );
 	cout << "\nCreation of " << nfluid << " fluid particles completed. [OK]" << endl;
 	cudaFree( fpos_d );
-	cudaFree( nfi_d );
-	cudaFree(norm_d  );
-	cudaFree(pos_d   );
-	cudaFree(ep_d    );
+	cudaFree( nfi_d  );
+	cudaFree( norm_d );
+	cudaFree( pos_d  );
+	cudaFree( ep_d   );
+  cudaFree( dist_d );
+  cudaFree( ind_d  );
 
 	//prepare output structure for particles
 	cout << "Creating and initializing of output buffer of particles ...";
@@ -1193,18 +913,21 @@ int crixus_main(int argc, char** argv){
 	imin[0] = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr))+1;
 	imin[1] = int(floor((dmax.a[1]-dmin.a[1]+eps)/dr))+1;
 	imin[2] = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr))+1;
+  cout << imin[0] << " " << imin[1] << " " << imin[2] << " " << eps << endl;
+  cout << dmin.a[0] << " " << dmin.a[1] << " " << dmin.a[2] << " " << eps << endl;
+  cout << dmax.a[0] << " " << dmax.a[1] << " " << dmax.a[2] << " " << eps << endl;
 	//free particles
 	for(unsigned int j=0; j<maxfn; j++){
 		int i = j/bitPerUint;
 		int l = j%bitPerUint;
 		m = 1 << l;
 		if(fpos[i] & m){
-			m = j/(imin[1]*imin[2]);
-			buf[k].z = dmin.a[1]+dr*(float)m;
-			n = j%(imin[1]*imin[2]);
-			m = n/imin[2];
+			m = j/(imin[1]*imin[0]);
+			buf[k].z = dmin.a[2]+dr*(float)m;
+			n = j%(imin[1]*imin[0]);
+			m = n/imin[0];
 			buf[k].y = dmin.a[1]+dr*(float)m;
-			m = n%imin[2];
+			m = n%imin[0];
 			buf[k].x = dmin.a[0]+dr*(float)m;
 			buf[k].nx = 0.;
 			buf[k].ny = 0.;
@@ -1264,8 +987,6 @@ int crixus_main(int argc, char** argv){
 		buf[k].vol = 0.;
 		buf[k].surf = surf[i-nvert];
 		buf[k].kpar = 3;
-		if(binflow || boutflow)
-			buf[k].kpar += inout[i];
 		buf[k].kfluid = 1;
 		buf[k].kent = 1;
 		buf[k].kparmob = 0;
