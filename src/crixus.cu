@@ -581,11 +581,11 @@ int crixus_main(int argc, char** argv){
 
 		if(opt==1){ // fluid based on rectangular box
 			cout << "Enter dimensions of fluid box:" << endl;
-			cout << "xmin, xmax: ";
+			cout << "xmin xmax: ";
 			cin >> xmin >> xmax;
-			cout << "ymin, ymax: ";
+			cout << "ymin ymax: ";
 			cin >> ymin >> ymax;
-			cout << "zmin, zmax: ";
+			cout << "zmin zmax: ";
 			cin >> zmin >> zmax;
 			if(fabs(xmin-xmax)<1e-5*dr || fabs(ymin-ymax)<1e-5*dr || fabs(zmin-zmax)<1e-5*dr){
 				cout << "\nMistake in input for fluid box dimensions" << endl;
