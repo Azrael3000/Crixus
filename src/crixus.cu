@@ -894,9 +894,9 @@ int crixus_main(int argc, char** argv){
 			cout << "x, y, z = ";
 			cin >> spos[0] >> spos[1] >> spos[2];
       // initialize placing of seed point
-      int ispos = (int)floor((spos[0]-dmin.a[0]+eps)/dr);
-      int jspos = (int)floor((spos[1]-dmin.a[1]+eps)/dr);
-      int kspos = (int)floor((spos[2]-dmin.a[2]+eps)/dr);
+      int ispos = (int)round((spos[0]-dmin.a[0]+eps)/dr);
+      int jspos = (int)round((spos[1]-dmin.a[1]+eps)/dr);
+      int kspos = (int)round((spos[2]-dmin.a[2]+eps)/dr);
       int idimg = (int)floor((dmax.a[0]-dmin.a[0]+eps)/dr+1);
       int jdimg = (int)floor((dmax.a[1]-dmin.a[1]+eps)/dr+1);
       int sInd = ispos + jspos*idimg + kspos*idimg*jdimg;
@@ -1145,7 +1145,7 @@ int crixus_main(int argc, char** argv){
         nfi = 0;
         CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
-        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, dist_d, ind_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f);
+        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, dist_d, ind_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f, bcoarse, cnbe);
 
         CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
         nfluid += nfi;
@@ -1193,9 +1193,6 @@ int crixus_main(int argc, char** argv){
 	imin[0] = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr))+1;
 	imin[1] = int(floor((dmax.a[1]-dmin.a[1]+eps)/dr))+1;
 	imin[2] = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr))+1;
-  cout << imin[0] << " " << imin[1] << " " << imin[2] << " " << eps << endl;
-  cout << dmin.a[0] << " " << dmin.a[1] << " " << dmin.a[2] << " " << eps << endl;
-  cout << dmax.a[0] << " " << dmax.a[1] << " " << dmax.a[2] << " " << eps << endl;
 	//free particles
 	for(unsigned int j=0; j<maxfn; j++){
 		int i = j/bitPerUint;

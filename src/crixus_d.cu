@@ -550,7 +550,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   return;
 }
 
-__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, float *dist, ui4 *ind, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock)
+__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, float *dist, ui4 *ind, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock, bool bcoarse, int cnbe)
 {
   // this function is responsible for filling a complex geometry with fluid
   // place seed point
@@ -571,7 +571,8 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
   int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
   int i,j,k,tmp;
 
-  while(((int)ceil(arrayInd/((float)bitPerUint)))<dimg.a[0]*dimg.a[1]*dimg.a[2]){
+  //while(((int)ceil(arrayInd/((float)bitPerUint)))<dimg.a[0]*dimg.a[1]*dimg.a[2]){
+  while(arrayInd<(int)ceil(((float)dimg.a[0]*dimg.a[1]*dimg.a[2])/((float)bitPerUint))){
     // loop through all bits of the array entry with index arrayInd
     for(int ii=0, bitInd=arrayInd*bitPerUint; ii<bitPerUint; ii++, bitInd++){
       unsigned int bit = 1<<ii;
@@ -600,7 +601,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
             // check whether position is filled
             if(fpos[indOff/bitPerUint] & (1<<(indOff%bitPerUint))){
               // check for collision with triangle
-              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, dist, ind, pos, nbe, dr, dmin, dimg, eps);
+              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, dist, ind, pos, nbe, dr, dmin, dimg, eps, bcoarse, cnbe);
               if(!collision){
                 fpos[arrayInd] = fpos[arrayInd] | bit;
                 nfi_tmp++;
@@ -639,7 +640,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
   return;
 }
 
-__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, float *dist, ui4 *ind, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps){
+__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, float *dist, ui4 *ind, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, bool bcoarse, int cnbe){
   // checks whether the line-segment determined by s. and e. intersects any available triangle
   bool collision = false;
 	uf4 s, e, n, v[3];
@@ -655,6 +656,14 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
 		n = norm[i];
 		for(int j=0; j<3; j++)
 			v[j] = pos[ep[i].a[j]];
+    // if we don't have a coarse grid, the triangle needs to be close enough so that something can happen
+    if(!bcoarse && i<nbe-cnbe){
+      float dist = 0.0;
+      for(int j=0;j<3;j++)
+        dist += (s.a[j]-v[0].a[j])*(s.a[j]-v[0].a[j]);
+      if(dist>16*dr*dr)
+        continue;
+    }
     float tri_d = dist[i];
     ui4 tri_ind = ind[i];
 
@@ -662,52 +671,9 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
 
 		if(collision)
 			break;
-	}
-  return collision;
-}
+  }
 
-__device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, float d, ui4 ind, uf4 *v, float eps){
-  // algorithm for triangle line-segment collision check, Chirkov [2005]
-  // step 1: calculate t_s, t_e
-  float t_e, t_s;
-  //d = -dot(n,v[0]);
-  t_s = n.a[0]*s.a[0] + n.a[1]*s.a[1] + n.a[2]*s.a[2] + d;
-  t_e = n.a[0]*e.a[0] + n.a[1]*e.a[1] + n.a[2]*e.a[2] + d;
-  // step 2: first check t_s*t_e > 0 => no intersection
-  if(t_s*t_e > eps)
-    return false;
-  // step 3: e_tilde[0:1], nPrime_i[0:1](v[0])
-  float dist = t_s - t_e;
-  int j = ind.a[1];
-  int k = ind.a[2];
-  float tsTes[3];
-  tsTes[j] = t_s*(e.a[j]-s.a[j]);
-  tsTes[k] = t_s*(e.a[k]-s.a[k]);
-  uf4 e_tilde[3];
-  e_tilde[0].a[j] = v[1].a[j] - v[0].a[j];
-  e_tilde[0].a[k] = v[1].a[k] - v[0].a[k];
-  e_tilde[1].a[j] = v[2].a[j] - v[0].a[j];
-  e_tilde[1].a[k] = v[2].a[k] - v[0].a[k];
-  uf4 nPrime_i;
-  nPrime_i.a[0] = e_tilde[0].a[j]*((s.a[k]-v[0].a[k])*dist+tsTes[k]) -
-                  e_tilde[0].a[k]*((s.a[j]-v[0].a[j])*dist+tsTes[j]);
-  nPrime_i.a[1] = e_tilde[1].a[j]*((s.a[k]-v[0].a[k])*dist+tsTes[k]) -
-                  e_tilde[1].a[k]*((s.a[j]-v[0].a[j])*dist+tsTes[j]);
-  // step 4: second check n_{0,i} * n_{1,i} > 0 => no intersection
-  if(nPrime_i.a[0]*nPrime_i.a[1] > eps)
-    return false;
-  // step 5: calculate e_tilde[2], nPrime_i[0,2](v[1])
-  e_tilde[2].a[j] = v[1].a[j] - v[2].a[j];
-  e_tilde[2].a[k] = v[1].a[k] - v[2].a[k];
-  nPrime_i.a[0] = e_tilde[0].a[j]*((s.a[k]-v[1].a[k])*dist+tsTes[k]) -
-                  e_tilde[0].a[k]*((s.a[j]-v[1].a[j])*dist+tsTes[j]);
-  nPrime_i.a[2] = e_tilde[2].a[j]*((s.a[k]-v[1].a[k])*dist+tsTes[k]) -
-                  e_tilde[2].a[k]*((s.a[j]-v[1].a[j])*dist+tsTes[j]);
-  // step 6: third check n_{0,i} * n_{2,i} > 0 => no intersection
-  if(nPrime_i.a[0]*nPrime_i.a[2] > eps)
-    return false;
-  // step 7: collision detected
-  return true;
+  return collision;
 }
 
 __global__ void perpareTriangles(uf4 *norm, uf4 *pos, ui4 *ep, ui4 *ind, float *dist, unsigned int nbe){
@@ -737,6 +703,92 @@ __global__ void perpareTriangles(uf4 *norm, uf4 *pos, ui4 *ep, ui4 *ind, float *
     ii += blockDim.x*gridDim.x;
   }
   return;
+}
+
+// Copyright 2001, softSurfer (www.softsurfer.com)
+// This code may be freely used and modified for any purpose
+// providing that this copyright notice is included with it.
+// SoftSurfer makes no warranty for this code, and cannot be held
+// liable for any real or imagined damage resulting from its use.
+// Users of this code must verify correctness for their application.
+
+// Assume that classes are already given for the objects:
+//    Point and Vector with
+//        coordinates {float x, y, z;}
+//        operators for:
+//            == to test equality
+//            != to test inequality
+//            (Vector)0 = (0,0,0)         (null vector)
+//            Point  = Point ± Vector
+//            Vector = Point - Point
+//            Vector = Scalar * Vector    (scalar product)
+//            Vector = Vector * Vector    (cross product)
+//    Line and Ray and Segment with defining points {Point P0, P1;}
+//        (a Line is infinite, Rays and Segments start at P0)
+//        (a Ray extends beyond P1, but a Segment ends at P1)
+//    Plane with a point and a normal {Point V0; Vector n;}
+//    Triangle with defining vertices {Point V0, V1, V2;}
+//    Polyline and Polygon with n vertices {int n; Point *V;}
+//        (a Polygon has V[n]=V[0])
+//===================================================================
+
+// dot product (3D) which allows vector operations in arguments
+#define dot(u,v)   ((u).a[0] * (v).a[0] + (u).a[1] * (v).a[1] + (u).a[2] * (v).a[2])
+
+// intersect_RayTriangle(): intersect a ray with a 3D triangle
+//    Input:  a ray R, and a triangle T
+//    Output: *I = intersection point (when it exists)
+//    Return: -1 = triangle is degenerate (a segment or point)
+//             0 = disjoint (no intersect)
+//             1 = intersect in unique point I1
+//             2 = are in the same plane
+__device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, float d, ui4 ind, uf4 *vert, float eps){
+    uf4    u, v;                              // triangle vectors
+    uf4    dir, w0, w;                        // ray vectors
+    float  r, a, b;                           // params to calc ray-plane intersect
+
+    // get triangle edge vectors and plane normal
+    for(int j=0; j<3; j++){
+      u.a[j] = vert[1].a[j] - vert[0].a[j];
+      v.a[j] = vert[2].a[j] - vert[0].a[j];
+      dir.a[j] = e.a[j] - s.a[j];             // ray direction vector
+      w0.a[j] = s.a[j] - vert[0].a[j];
+    }
+    a = -dot(n,w0);
+    b = dot(n,dir);
+    if (fabs(b) < eps) {                // ray is parallel to triangle plane
+        if (fabs(a) < eps)              // ray lies in triangle plane
+            return true;
+        return false;                         // ray disjoint from plane
+    }
+
+    // get intersect point of ray with triangle plane
+    r = a / b;
+    if (r < -eps || r > 1.0 + eps) // intersection point not on triangle plane
+        return false;                         // => no intersect
+
+    for(int j=0; j<3; j++)
+      w.a[j] = s.a[j] + r*dir.a[j] - vert[0].a[j]; // vector from v0 to intersection point
+
+    // is I inside T?
+    float    uu, uv, vv, wu, wv, D;
+    uu = dot(u,u);
+    uv = dot(u,v);
+    vv = dot(v,v);
+    wu = dot(w,u);
+    wv = dot(w,v);
+    D = uv * uv - uu * vv;
+
+    // get and test parametric coords
+    float t1, t2;
+    t1 = (uv * wv - vv * wu) / D;
+    if (t1 < -eps || t1 > 1.0 + eps)        // I is outside T
+        return false;
+    t2 = (uv * wu - uu * wv) / D;
+    if (t2 < -eps || (t1+t2) > 1.0 + eps)  // I is outside T
+        return false;
+
+    return true;                      // I is in T
 }
 
 __global__ void identifyInOutFlowSegments (uf4 *pos, int nvert, int nbe, uf4 *outpos, ui4 *outep, int outnbe, uf4 *inpos, ui4 *inep, int innbe, float eps, short *inout){
