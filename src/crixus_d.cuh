@@ -35,13 +35,11 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 
 __device__ void gpu_sync (int*, int*);
 
-__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, float *dist, ui4 *ind, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock, bool bcoarse, int cnbe);
+__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock, bool bcoarse, int cnbe);
 
-__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, float *dist, ui4 *ind, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, bool bcoarse, int cnbe);
+__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, bool bcoarse, int cnbe);
 
-__device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, float d, ui4 ind, uf4 *v, float eps);
-
-__global__ void perpareTriangles(uf4 *norm, uf4 *pos, ui4 *ep, ui4 *ind, float *dist, unsigned int nbe);
+__device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, uf4 *v, float eps);
 
 __global__ void identifyInOutFlowSegments (uf4 *pos, int nvert, int nbe, uf4 *outpos, ui4 *outep, int outnbe, uf4 *inpos, ui4 *inep, int innbe, float eps, short *inout);
 

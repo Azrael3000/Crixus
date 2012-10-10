@@ -550,7 +550,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   return;
 }
 
-__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, float *dist, ui4 *ind, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock, bool bcoarse, int cnbe)
+__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock, bool bcoarse, int cnbe)
 {
   // this function is responsible for filling a complex geometry with fluid
   // place seed point
@@ -601,7 +601,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
             // check whether position is filled
             if(fpos[indOff/bitPerUint] & (1<<(indOff%bitPerUint))){
               // check for collision with triangle
-              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, dist, ind, pos, nbe, dr, dmin, dimg, eps, bcoarse, cnbe);
+              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, pos, nbe, dr, dmin, dimg, eps, bcoarse, cnbe);
               if(!collision){
                 fpos[arrayInd] = fpos[arrayInd] | bit;
                 nfi_tmp++;
@@ -640,16 +640,18 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
   return;
 }
 
-__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, float *dist, ui4 *ind, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, bool bcoarse, int cnbe){
+__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, bool bcoarse, int cnbe){
   // checks whether the line-segment determined by s. and e. intersects any available triangle
   bool collision = false;
-	uf4 s, e, n, v[3];
+	uf4 s, e, n, v[3], dir;
 	s.a[0] = ((float)si)*dr + (*dmin).a[0];
 	s.a[1] = ((float)sj)*dr + (*dmin).a[1];
 	s.a[2] = ((float)sk)*dr + (*dmin).a[2];
 	e.a[0] = ((float)ei)*dr + (*dmin).a[0];
 	e.a[1] = ((float)ej)*dr + (*dmin).a[1];
 	e.a[2] = ((float)ek)*dr + (*dmin).a[2];
+  for(int i=0; i<3; i++)
+    dir.a[i] = e.a[i] - s.a[i];
 
   // loop through all triangles
 	for(int i=0; i<nbe; i++){
@@ -664,45 +666,14 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
       if(dist>16*dr*dr)
         continue;
     }
-    float tri_d = dist[i];
-    ui4 tri_ind = ind[i];
 
-		collision = checkTriangleCollision(s, e, n, tri_d, tri_ind, v, eps);
+		collision = checkTriangleCollision(s, dir, n, v, eps);
 
 		if(collision)
 			break;
   }
 
   return collision;
-}
-
-__global__ void perpareTriangles(uf4 *norm, uf4 *pos, ui4 *ep, ui4 *ind, float *dist, unsigned int nbe){
-  int ii = threadIdx.x + blockIdx.x*blockDim.x;
-  while(ii<nbe){
-    // Get main axis index
-    int i = -1; // i = maxloc(n_j)
-    float maxval = -1.;
-    for(int ij=0; ij<3; ij++){
-      if(fabs(norm[ii].a[ij]) > maxval){
-        maxval = fabs(norm[ii].a[ij]);
-        i = ij;
-      }
-    }
-    int j = 0, k; // other indices (different from i)
-    if(i==j)
-      j = 1;
-    k = 3 - (i+j);
-    ind[ii].a[0] = i;
-    ind[ii].a[1] = j;
-    ind[ii].a[2] = k;
-    // Calculate constant d for the plane spanned by the triangle
-    int v0 = ep[ii].a[0];
-    dist[ii] = norm[ii].a[0]*pos[v0].a[0] +
-               norm[ii].a[1]*pos[v0].a[1] +
-               norm[ii].a[2]*pos[v0].a[2];
-    ii += blockDim.x*gridDim.x;
-  }
-  return;
 }
 
 // Copyright 2001, softSurfer (www.softsurfer.com)
@@ -712,46 +683,18 @@ __global__ void perpareTriangles(uf4 *norm, uf4 *pos, ui4 *ep, ui4 *ind, float *
 // liable for any real or imagined damage resulting from its use.
 // Users of this code must verify correctness for their application.
 
-// Assume that classes are already given for the objects:
-//    Point and Vector with
-//        coordinates {float x, y, z;}
-//        operators for:
-//            == to test equality
-//            != to test inequality
-//            (Vector)0 = (0,0,0)         (null vector)
-//            Point  = Point ± Vector
-//            Vector = Point - Point
-//            Vector = Scalar * Vector    (scalar product)
-//            Vector = Vector * Vector    (cross product)
-//    Line and Ray and Segment with defining points {Point P0, P1;}
-//        (a Line is infinite, Rays and Segments start at P0)
-//        (a Ray extends beyond P1, but a Segment ends at P1)
-//    Plane with a point and a normal {Point V0; Vector n;}
-//    Triangle with defining vertices {Point V0, V1, V2;}
-//    Polyline and Polygon with n vertices {int n; Point *V;}
-//        (a Polygon has V[n]=V[0])
-//===================================================================
-
 // dot product (3D) which allows vector operations in arguments
 #define dot(u,v)   ((u).a[0] * (v).a[0] + (u).a[1] * (v).a[1] + (u).a[2] * (v).a[2])
 
-// intersect_RayTriangle(): intersect a ray with a 3D triangle
-//    Input:  a ray R, and a triangle T
-//    Output: *I = intersection point (when it exists)
-//    Return: -1 = triangle is degenerate (a segment or point)
-//             0 = disjoint (no intersect)
-//             1 = intersect in unique point I1
-//             2 = are in the same plane
-__device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, float d, ui4 ind, uf4 *vert, float eps){
+__device__ bool checkTriangleCollision(uf4 s, uf4 dir, uf4 n, uf4 *vert, float eps){
     uf4    u, v;                              // triangle vectors
-    uf4    dir, w0, w;                        // ray vectors
+    uf4    w0, w;                        // ray vectors
     float  r, a, b;                           // params to calc ray-plane intersect
 
     // get triangle edge vectors and plane normal
     for(int j=0; j<3; j++){
       u.a[j] = vert[1].a[j] - vert[0].a[j];
       v.a[j] = vert[2].a[j] - vert[0].a[j];
-      dir.a[j] = e.a[j] - s.a[j];             // ray direction vector
       w0.a[j] = s.a[j] - vert[0].a[j];
     }
     a = -dot(n,w0);

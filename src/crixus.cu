@@ -43,8 +43,8 @@ int crixus_main(int argc, char** argv){
 	cout << "\t*          C R I X U S          *" << endl;
 	cout << "\t*                               *" << endl;
 	cout << "\t*********************************" << endl;
-	cout << "\t* Version: 0.5b                 *" << endl;
-	cout << "\t* Date   : 14.06.2012           *" << endl;
+	cout << "\t* Version: 0.5                  *" << endl;
+	cout << "\t* Date   : 10.10.2012           *" << endl;
 	cout << "\t* Authors: Arno Mayrhofer       *" << endl;
 	cout << "\t*          Christophe Kassiotis *" << endl;
 	cout << "\t*          F-X Morel            *" << endl;
@@ -800,8 +800,6 @@ int crixus_main(int argc, char** argv){
 	int opt;
 	unsigned int *fpos, *fpos_d;
   unsigned int *nfi_d;
-  float *dist_d;
-  ui4 *ind_d;
 
 	eps = 1e-10;
 	for(unsigned int i=0; i<3; i++)
@@ -1120,18 +1118,12 @@ int crixus_main(int argc, char** argv){
 				epv.clear();
 				norm.clear();
 				CUDA_SAFE_CALL( cudaMalloc((void **) &norm_d,   fnbe*sizeof(uf4  )) );
-				CUDA_SAFE_CALL( cudaMalloc((void **) &dist_d,   fnbe*sizeof(float)) );
-				CUDA_SAFE_CALL( cudaMalloc((void **) &ind_d ,   fnbe*sizeof(ui4  )) );
 				CUDA_SAFE_CALL( cudaMalloc((void **) &pos_d , fnvert*sizeof(uf4  )) );
 				CUDA_SAFE_CALL( cudaMalloc((void **) &ep_d  ,   fnbe*sizeof(ui4  )) );
 				CUDA_SAFE_CALL( cudaMemcpy((void *) norm_d, (void *) fnorma,   fnbe*sizeof(uf4), cudaMemcpyHostToDevice) );
 				CUDA_SAFE_CALL( cudaMemcpy((void *) pos_d , (void *) fposa , fnvert*sizeof(uf4), cudaMemcpyHostToDevice) );
 				CUDA_SAFE_CALL( cudaMemcpy((void *) ep_d  , (void *) fep   ,   fnbe*sizeof(ui4), cudaMemcpyHostToDevice) );
         
-        numBlocks = (int) ceil((float)fnbe/(float)numThreads);
-				numBlocks = min(numBlocks,maxblock);
-        perpareTriangles<<<numBlocks, numThreads>>> (norm_d, pos_d, ep_d, ind_d, dist_d, fnbe);
-
         numBlocks = (int) ceil((float)maxf/(float)numThreads);
         numBlocks = min(numBlocks,maxblock);
         cout << " [OK]" << endl;
@@ -1145,7 +1137,7 @@ int crixus_main(int argc, char** argv){
         nfi = 0;
         CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
-        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, dist_d, ind_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f, bcoarse, cnbe);
+        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f, bcoarse, cnbe);
 
         CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
         nfluid += nfi;
@@ -1173,10 +1165,17 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) fpos, (void *) fpos_d, maxf*sizeof(unsigned int), cudaMemcpyDeviceToHost) );
 	cout << "\nCreation of " << nfluid << " fluid particles completed. [OK]" << endl;
 	cudaFree( fpos_d );
+<<<<<<< HEAD
 	cudaFree( nfi_d );
 	cudaFree(norm_d  );
 	cudaFree(pos_d   );
 	cudaFree(ep_d    );
+=======
+	cudaFree( nfi_d  );
+	cudaFree( norm_d );
+	cudaFree( pos_d  );
+	cudaFree( ep_d   );
+>>>>>>> Optimizing triangle collision, more possible but would be a compromise between memory / speed.
 
 	//prepare output structure for particles
 	cout << "Creating and initializing of output buffer of particles ...";
