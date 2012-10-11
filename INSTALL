@@ -1,0 +1,20 @@
+****************
+ INSTALL Crixus
+****************
+
+Prerequisites:
+
+# cmake >= 2.8
+# cuda
+# hdf5 >= 1.8.7
+
+Crixus uses CMake for compilation. Let us assume that you have the crixus sources in $(CRIXUS_PATH) and you want the building to happen in $(CRIXUS_BUILD) then follow the commands below:
+
+mkdir $(CRIXUS_BUILD)
+cd $(CRIXUS_BUILD)
+cmake $(CRIXUS_PATH)
+make
+
+The binary is then loacated at $(CRIXUS_BUILD)/bin/Release/Crixus
+
+Note that "make install" is not supported yet. To easily change the parameters of cmake you can use ccmake instead.
