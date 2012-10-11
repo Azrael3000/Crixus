@@ -666,12 +666,13 @@ int crixus_main(int argc, char** argv){
     cout << " [OK]" << endl;
 	}
 
+  /* in/outflow is for version 0.6
 	// after reading in data for in/outflow copy data to gpu and identify interior boundary segments
 	short *inout;
 	if(binflow || boutflow){
 		short *inout_d;
-		uf4 *pos_in_d, *pos_out_d;
-		ui4 *ep_in_d, *ep_out_d;
+    uf4 *outpos_d, *inpos_d;
+    ui4 *outep_d , *inep_d;
 		inout = new short[nbe];
 		CUDA_SAFE_CALL( cudaMalloc((void **) &inout_d  ,      nbe*sizeof(short)) );
 		CUDA_SAFE_CALL( cudaMalloc((void **) &inpos_d  ,  innvert*sizeof(uf4  )) );
@@ -689,11 +690,12 @@ int crixus_main(int argc, char** argv){
 	
 		CUDA_SAFE_CALL( cudaMemcpy((void *) inout_d, (void *) inout, nbe*sizeof(short) , cudaMemcpyDeviceToHost) );
 		cudaFree( inout     );
-		cudaFree( pos_in_d  );
-		cudaFree( pos_out_d );
-		cudaFree( ep_in_d   );
-		cudaFree( ep_out_d  );
+		cudaFree( outpos_d  );
+		cudaFree( inpos_d );
+		cudaFree( outep_d   );
+		cudaFree( inep_d  );
 	}
+  */
 
 	//setting up fluid particles
 	cout << "\nDefining fluid particles ..." << endl;
@@ -1165,17 +1167,10 @@ int crixus_main(int argc, char** argv){
 	CUDA_SAFE_CALL( cudaMemcpy((void *) fpos, (void *) fpos_d, maxf*sizeof(unsigned int), cudaMemcpyDeviceToHost) );
 	cout << "\nCreation of " << nfluid << " fluid particles completed. [OK]" << endl;
 	cudaFree( fpos_d );
-<<<<<<< HEAD
-	cudaFree( nfi_d );
-	cudaFree(norm_d  );
-	cudaFree(pos_d   );
-	cudaFree(ep_d    );
-=======
 	cudaFree( nfi_d  );
 	cudaFree( norm_d );
 	cudaFree( pos_d  );
 	cudaFree( ep_d   );
->>>>>>> Optimizing triangle collision, more possible but would be a compromise between memory / speed.
 
 	//prepare output structure for particles
 	cout << "Creating and initializing of output buffer of particles ...";
@@ -1263,8 +1258,10 @@ int crixus_main(int argc, char** argv){
 		buf[k].vol = 0.;
 		buf[k].surf = surf[i-nvert];
 		buf[k].kpar = 3;
+    /* in/outflow is for version 0.6
 		if(binflow || boutflow)
 			buf[k].kpar += inout[i];
+    */
 		buf[k].kfluid = 1;
 		buf[k].kent = 1;
 		buf[k].kparmob = 0;

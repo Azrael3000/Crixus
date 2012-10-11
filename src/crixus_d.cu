@@ -774,9 +774,9 @@ __device__ bool segInTri(uf4 *vb, uf4 spos, float eps){
 		dot11 += ca*ca;
 		dot12 += ca*pa;
 	}
-	invdet = 1.0/(dot00*dot11-dot01*dot01)
-	u = (dot11*dot02-dot01*dot12)*invdet
-	v = (dot00*dot12-dot01*dot02)*invdet
+	invdet = 1.0/(dot00*dot11-dot01*dot01);
+	u = (dot11*dot02-dot01*dot12)*invdet;
+	v = (dot00*dot12-dot01*dot02)*invdet;
 	if( u < -eps || v < -eps || u+v > 1+eps ) return false;
 	return true;
 }
