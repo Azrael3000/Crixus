@@ -5,6 +5,7 @@
  *   - filling via bit field
  *   - filling of complex geometries
  *   - specification of fluid container
+ * 	 - check if fluid particles are closer than dr to the wall
  * - Version 0.6:
  *   - in/outflow option
  *   - replace uf4 by uf3 (class with float[3])
@@ -44,11 +45,13 @@ int crixus_main(int argc, char** argv){
 	cout << "\t*                               *" << endl;
 	cout << "\t*********************************" << endl;
 	cout << "\t* Version: 0.5                  *" << endl;
-	cout << "\t* Date   : 10.10.2012           *" << endl;
+	cout << "\t* Date   : 04.12.2013           *" << endl;
 	cout << "\t* Authors: Arno Mayrhofer       *" << endl;
 	cout << "\t*          Christophe Kassiotis *" << endl;
 	cout << "\t*          F-X Morel            *" << endl;
 	cout << "\t*          Martin Ferrand       *" << endl;
+	cout << "\t*          Agnes Leroy          *" << endl;
+	cout << "\t*          Antoine Joly         *" << endl;
 	cout << "\t*********************************" << endl;
 	cout << endl;
 	float m_v_floats[12];
