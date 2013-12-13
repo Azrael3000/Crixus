@@ -99,7 +99,10 @@ int crixus_main(int argc, char** argv){
 	if(!found){
 		cudaDeviceProp prop;
 		CUDA_SAFE_CALL( cudaGetDeviceProperties(&prop,0) );
+		CUDA_SAFE_CALL( cudaSetDevice(0) );
 		maxthread = prop.maxThreadsPerBlock;
+		maxblock  = prop.maxGridSize[0];
+		cout << " Id: " << 0 << " (" << maxthread << ", " << maxblock << ") ...";
 		if(maxthread < threadsPerBlock){
 			cout << " [FAILED]" << endl;
 			return MAXTHREAD_TOO_BIG;
