@@ -550,7 +550,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   return;
 }
 
-__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock, bool bcoarse, int cnbe)
+__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock, bool bcoarse, int cnbe, float dr_wall)
 {
   // this function is responsible for filling a complex geometry with fluid
   // place seed point
@@ -601,7 +601,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
             // check whether position is filled
             if(fpos[indOff/bitPerUint] & (1<<(indOff%bitPerUint))){
               // check for collision with triangle
-              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, pos, nbe, dr, dmin, dimg, eps, bcoarse, cnbe);
+              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, pos, nbe, dr, dmin, dimg, eps, bcoarse, cnbe, dr_wall);
               if(!collision){
                 fpos[arrayInd] = fpos[arrayInd] | bit;
                 nfi_tmp++;
@@ -640,7 +640,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
   return;
 }
 
-__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, bool bcoarse, int cnbe){
+__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, bool bcoarse, int cnbe, float dr_wall){
   // checks whether the line-segment determined by s. and e. intersects any available triangle
   bool collision = false;
 	uf4 s, e, n, v[3], dir;
@@ -667,10 +667,30 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
         continue;
     }
 
+    // check if we are too close to a boundary
+    if(i<nbe-cnbe){
+      // distance to vertices
+      for(int j=0; j<3; j++){
+        float dist = 0.0;
+        for(int k=0; k<3; k++)
+          dist += (s.a[k]-v[j].a[k])*(s.a[k]-v[j].a[k]);
+        if(dist<dr_wall*dr_wall)
+          return true;
+      }
+      // distance to segment
+      float dist = 0.0;
+      for(int k=0; k<3; k++)
+        // position of segments is no longer available
+        dist += (s.a[k]-(v[0].a[k]+v[1].a[k]+v[2].a[k])/3.0f)*
+                (s.a[k]-(v[0].a[k]+v[1].a[k]+v[2].a[k])/3.0f);
+      if(dist<dr_wall*dr_wall)
+        return true;
+    }
+
 		collision = checkTriangleCollision(s, dir, n, v, eps);
 
 		if(collision)
-			break;
+      return true;
   }
 
   return collision;

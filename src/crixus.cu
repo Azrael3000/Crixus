@@ -895,10 +895,12 @@ int crixus_main(int argc, char** argv){
 
 		else if(opt==2){ // fluid based on geometry
 			// get seed point
-			float spos[3];
+			float spos[3], dr_wall;
 			cout << "Please specify a seed point." << endl;
 			cout << "x, y, z = ";
 			cin >> spos[0] >> spos[1] >> spos[2];
+      cout << "Specify distance from fluid particles to vertex particles and segments: ";
+      cin >> dr_wall;
       // initialize placing of seed point
       int ispos = (int)round((spos[0]-dmin.a[0]+eps)/dr);
       int jspos = (int)round((spos[1]-dmin.a[1]+eps)/dr);
@@ -1145,7 +1147,7 @@ int crixus_main(int argc, char** argv){
         nfi = 0;
         CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
-        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f, bcoarse, cnbe);
+        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f, bcoarse, cnbe, dr_wall);
 
         CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
         nfluid += nfi;
