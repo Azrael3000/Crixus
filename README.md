@@ -37,9 +37,9 @@ So by now you should have a geometry in Salome and in the next step we will crea
 3. Triangle (Mephisto)
 
 In detail:
-1. *Netgen 2D*: As hypothesis choose Length From Edges, then choose a 1D algorithm as outlined below.
-2. *Netgen 1D-2D*: The "Netgen 2D Simple Parameters" suffice as hypothesis. In the 1D box choose "Local Length" as option and in the 2D box tick "Length from edges".
-3. *Triangle*: No hypothesis required.
+1. Netgen 2D: As hypothesis choose Length From Edges, then choose a 1D algorithm as outlined below.
+2. Netgen 1D-2D: The "Netgen 2D Simple Parameters" suffice as hypothesis. In the 1D box choose "Local Length" as option and in the 2D box tick "Length from edges".
+3. Triangle: No hypothesis required.
 
 For option 1 and 3 a 1D algorithm is required, to select one switch to tab 1D and choose "Wire discretisation" as hypothesis choose "Max Length".
 
@@ -58,4 +58,5 @@ If you need any help or found a bug feel free to write me an email to firstname.
 - initial = m
 - domain = gmx
 - tld = at
+
 Finally it shall be noted that the authors can be motivated by supplying them with whisky.
