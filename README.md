@@ -24,6 +24,7 @@ The installation and compilation procedure is described in the file INSTALL.
 Before we start a few words on how to prepare a geometry. We will use the program SALOME (www.salome-platform.com) in the following, but any other program capable of generating \*.stl files can be used.
 
 Salome offers several options to create a geometry:
+
 1. Create the geometry by hand in Salome
 2. Import a geometry
 3. Import an STL file and convert it to a geometry
