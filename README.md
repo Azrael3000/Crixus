@@ -32,13 +32,14 @@ The last one needs to be described in greater detail. Open a new study in Salome
 
 So by now you should have a geometry in Salome and in the next step we will create a triangle mesh. To start with that switch to the mesh module in Salome. Now create a new mesh (Mesh->Create Mesh). As geometry choose the geometry from the list on the left (in the above it was "stl_geometry"). There is no need for a 3D algorithm so switch to the 2D tab. Now several options are available and it is possibly a good idea to try several of them and compare the results against each other. The options are:
 
-1.) Netgen 2D
-2.) Netgen 1D-2D
-3.) Triangle (Mephisto)
+1. Netgen 2D
+2. Netgen 1D-2D
+3. Triangle (Mephisto)
 
-ad 1.) As hypothesis choose Length From Edges, then choose a 1D algorithm as outlined below.
-as 2.) The "Netgen 2D Simple Parameters" suffice as hypothesis. In the 1D box choose "Local Length" as option and in the 2D box tick "Length from edges".
-ad 3.) No hypothesis required.
+In detail:
+1. *Netgen 2D*: As hypothesis choose Length From Edges, then choose a 1D algorithm as outlined below.
+2. *Netgen 1D-2D*: The "Netgen 2D Simple Parameters" suffice as hypothesis. In the 1D box choose "Local Length" as option and in the 2D box tick "Length from edges".
+3. *Triangle*: No hypothesis required.
 
 For option 1 and 3 a 1D algorithm is required, to select one switch to tab 1D and choose "Wire discretisation" as hypothesis choose "Max Length".
 
@@ -53,8 +54,8 @@ Once the algorithms are set up, compute the mesh (Mesh->Compute) and export the 
 ----------------
 
 If you need any help or found a bug feel free to write me an email to firstname.initial@domain.tld where
-firstname = arno
-initial = m
-domain = gmx
-tld = at
+- firstname = arno
+- initial = m
+- domain = gmx
+- tld = at
 Finally it shall be noted that the authors can be motivated by supplying them with whisky.
