@@ -7,9 +7,13 @@
 #include "return.h"
 #include "crixus.h"
 
+// dot product (3D) which allows vector operations in arguments
+#define dot(u,v)   ((u).a[0] * (v).a[0] + (u).a[1] * (v).a[1] + (u).a[2] * (v).a[2])
+
 __global__ void set_bound_elem (uf4 *pos, uf4 *norm, float *surf, ui4 *ep, unsigned int nbe, float *xminp, float *xminn, float *nminp, float*nminn, Lock lock, int nvert)
 {
   float ddum[3];
+  uf4 ndir;
   unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
   __shared__ float xminp_c[threadsPerBlock];
   __shared__ float xminn_c[threadsPerBlock];
@@ -39,6 +43,20 @@ __global__ void set_bound_elem (uf4 *pos, uf4 *norm, float *surf, ui4 *ep, unsig
       a2 += pow(pos[ep[i].a[0]].a[j]-pos[ep[i].a[1]].a[j],2);
       b2 += pow(pos[ep[i].a[1]].a[j]-pos[ep[i].a[2]].a[j],2);
       c2 += pow(pos[ep[i].a[2]].a[j]-pos[ep[i].a[0]].a[j],2);
+      // get normal spanned by v1-v0 and v2-v0
+      ndir.a[j] = ((pos[ep[i].a[2]].a[(j+1)%3]-pos[ep[i].a[0]].a[(j+1)%3])*
+                   (pos[ep[i].a[1]].a[(j+2)%3]-pos[ep[i].a[0]].a[(j+2)%3]))-
+                  ((pos[ep[i].a[2]].a[(j+2)%3]-pos[ep[i].a[0]].a[(j+2)%3])*
+                   (pos[ep[i].a[1]].a[(j+1)%3]-pos[ep[i].a[0]].a[(j+1)%3]));
+
+    }
+    // check if vertices are set in a clockwise fashion
+    // if yes change vertex 1 and 2
+    // this ensures that in GPUSPH (v_{10} x n_s) points out of the segment
+    if(dot(norm[i],ndir) < 0){
+      int tmp = ep[i].a[1];
+      ep[i].a[1] = ep[i].a[2];
+      ep[i].a[2] = tmp;
     }
     if(norm[i].a[2] > 1e-5 && xminp_t > ddum[2]){
       xminp_t = ddum[2];
@@ -702,9 +720,6 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
 // SoftSurfer makes no warranty for this code, and cannot be held
 // liable for any real or imagined damage resulting from its use.
 // Users of this code must verify correctness for their application.
-
-// dot product (3D) which allows vector operations in arguments
-#define dot(u,v)   ((u).a[0] * (v).a[0] + (u).a[1] * (v).a[1] + (u).a[2] * (v).a[2])
 
 __device__ bool checkTriangleCollision(uf4 s, uf4 dir, uf4 n, uf4 *vert, float eps){
     uf4    u, v;                              // triangle vectors

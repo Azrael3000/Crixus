@@ -363,12 +363,12 @@ int crixus_main(int argc, char** argv){
       periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, dmax_d, dmin_d, dr, newlink, idim);
 
       CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d, (nvert+nbe)*sizeof(uf4), cudaMemcpyDeviceToHost) );
-      CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d ,         nbe*sizeof(ui4), cudaMemcpyDeviceToHost) );
       //if(err!=0) return err;
       //host
       cout << " [OK]" << endl;
     }
   }
+  CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d ,         nbe*sizeof(ui4), cudaMemcpyDeviceToHost) );
   CUDA_SAFE_CALL( cudaFree(newlink) );
   delete [] newlink_h;
 
