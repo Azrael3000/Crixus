@@ -44,16 +44,16 @@ __global__ void set_bound_elem (uf4 *pos, uf4 *norm, float *surf, ui4 *ep, unsig
       b2 += pow(pos[ep[i].a[1]].a[j]-pos[ep[i].a[2]].a[j],2);
       c2 += pow(pos[ep[i].a[2]].a[j]-pos[ep[i].a[0]].a[j],2);
       // get normal spanned by v1-v0 and v2-v0
-      ndir.a[j] = ((pos[ep[i].a[2]].a[(j+1)%3]-pos[ep[i].a[0]].a[(j+1)%3])*
-                   (pos[ep[i].a[1]].a[(j+2)%3]-pos[ep[i].a[0]].a[(j+2)%3]))-
-                  ((pos[ep[i].a[2]].a[(j+2)%3]-pos[ep[i].a[0]].a[(j+2)%3])*
-                   (pos[ep[i].a[1]].a[(j+1)%3]-pos[ep[i].a[0]].a[(j+1)%3]));
+      ndir.a[j] = ((pos[ep[i].a[1]].a[(j+1)%3]-pos[ep[i].a[0]].a[(j+1)%3])*
+                   (pos[ep[i].a[2]].a[(j+2)%3]-pos[ep[i].a[0]].a[(j+2)%3]))-
+                  ((pos[ep[i].a[1]].a[(j+2)%3]-pos[ep[i].a[0]].a[(j+2)%3])*
+                   (pos[ep[i].a[2]].a[(j+1)%3]-pos[ep[i].a[0]].a[(j+1)%3]));
 
     }
     // check if vertices are set in a clockwise fashion
     // if yes change vertex 1 and 2
     // this ensures that in GPUSPH (v_{10} x n_s) points out of the segment
-    if(dot(norm[i],ndir) < 0){
+    if(dot(norm[i],ndir) < 0.0f){
       int tmp = ep[i].a[1];
       ep[i].a[1] = ep[i].a[2];
       ep[i].a[2] = tmp;
