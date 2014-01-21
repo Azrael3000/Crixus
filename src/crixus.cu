@@ -1307,14 +1307,13 @@ int crixus_main(int argc, char** argv){
   //Output of particles
   char *fname = new char[flen+5];
   const char *fend = "h5sph";
-  float time = 0.;
   fname[0] = '0';
   fname[1] = '.';
   strncpy(fname+2, argv[1], flen-3);
   strncpy(fname+flen-1, fend, strlen(fend));
   fname[flen+4] = '\0';
   cout << "Writing output to file " << fname << " ...";
-  int err = hdf5_output( buf, nelem, fname, &time);
+  int err = hdf5_output( buf, nelem, fname);
   if(err==0){ cout << " [OK]" << endl; }
   else {
     cout << " [FAILED]" << endl;
