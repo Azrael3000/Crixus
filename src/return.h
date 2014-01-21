@@ -16,5 +16,6 @@
 #define NRGGAM_WRONG -13
 #define MAXLINK_TOO_SMALL -14
 #define MC_FAIL -15
+#define NO_WRITE_FILE -16
 
 #endif

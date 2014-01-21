@@ -1,5 +1,8 @@
 #include "crixus.h"
+#include "return.h"
 #include <hdf5.h>
+
+using namespace std;
 
 int main(int argc, char**argv){
   crixus_main(argc, argv);
@@ -54,4 +57,228 @@ int hdf5_output (OutBuf *buf, int len, const char *filename){
   H5Tclose(mem_type_id);
 
   return 0;
+}
+
+int vtk_output (OutBuf *buf, int len, const char *filename){
+
+  FILE *fid = fopen(filename, "w");
+
+  if (fid == NULL) {
+    cout << "Can't open file for writing: " << filename << "\n";
+    return NO_WRITE_FILE;
+  }
+
+  // Header
+  //====================================================================================
+  fprintf(fid,"<?xml version='1.0'?>\n");
+  fprintf(fid,"<VTKFile type= 'UnstructuredGrid'  version= '0.1'  byte_order= '%s'>\n",
+    endianness[*(char*)&endian_int & 1]);
+  fprintf(fid," <UnstructuredGrid>\n");
+  fprintf(fid,"  <Piece NumberOfPoints='%d' NumberOfCells='%d'>\n", len, len);
+
+  fprintf(fid,"   <PointData Scalars='Volume'>\n");
+
+  size_t offset = 0;
+
+  // Volume
+  scalar_array(fid, "Float32", "Volume", offset);
+  offset += sizeof(float)*len+sizeof(int);
+
+  // Surface
+  scalar_array(fid, "Float32", "Surface", offset);
+  offset += sizeof(float)*len+sizeof(int);
+
+  // particle type
+  scalar_array(fid, "UInt32", "ParticleType", offset);
+  offset += sizeof(uint)*len+sizeof(int);
+
+  // fluid type
+  scalar_array(fid, "UInt32", "FluidType", offset);
+  offset += sizeof(uint)*len+sizeof(int);
+
+  // kent
+  scalar_array(fid, "UInt32", "KENT", offset);
+  offset += sizeof(uint)*len+sizeof(int);
+
+  // MovingBoundary
+  scalar_array(fid, "UInt32", "MovingBoundary", offset);
+  offset += sizeof(uint)*len+sizeof(int);
+
+  // AbsoluteIndex
+  scalar_array(fid, "UInt32", "AbsoluteIndex", offset);
+  offset += sizeof(uint)*len+sizeof(int);
+
+  // Normal
+  vector_array(fid, "Float32", "Normal", 3, offset);
+  offset += sizeof(float)*3*len+sizeof(int);
+
+  // VertexParticle
+  vector_array(fid, "UInt32", "VertexParticle", 3, offset);
+  offset += sizeof(uint)*3*len+sizeof(int);
+
+  fprintf(fid,"   </PointData>\n");
+
+  // position
+  fprintf(fid,"   <Points>\n");
+  vector_array(fid, "Float64", 3, offset);
+  offset += sizeof(double)*3*len+sizeof(int);
+  fprintf(fid,"   </Points>\n");
+
+  // Cells data
+  fprintf(fid,"   <Cells>\n");
+  scalar_array(fid, "Int32", "connectivity", offset);
+  offset += sizeof(uint)*len+sizeof(int);
+  scalar_array(fid, "Int32", "offsets", offset);
+  offset += sizeof(uint)*len+sizeof(int);
+  fprintf(fid,"  <DataArray type='Int32' Name='types' format='ascii'>\n");
+  for (uint i = 0; i < len; i++)
+    fprintf(fid,"%d\t", 1);
+  fprintf(fid,"\n");
+  fprintf(fid,"  </DataArray>\n");
+  fprintf(fid,"   </Cells>\n");
+  fprintf(fid,"  </Piece>\n");
+
+  fprintf(fid," </UnstructuredGrid>\n");
+  fprintf(fid," <AppendedData encoding='raw'>\n_");
+  //====================================================================================
+
+  // float entries
+  int numbytes=sizeof(float)*len;
+
+  // volume
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    float value = buf[i].vol;
+    fwrite(&value, sizeof(value), 1, fid);
+  }
+
+  // surface
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    float value = buf[i].surf;
+    fwrite(&value, sizeof(value), 1, fid);
+  }
+
+  // int entries
+  numbytes=sizeof(uint)*len;
+
+  // ParticleType
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    uint value = buf[i].kpar;
+    fwrite(&value, sizeof(value), 1, fid);
+  }
+
+  // FluidType
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    uint value = buf[i].kfluid;
+    fwrite(&value, sizeof(value), 1, fid);
+  }
+
+  // KENT
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    uint value = buf[i].kent;
+    fwrite(&value, sizeof(value), 1, fid);
+  }
+
+  // MovingBoundary
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    uint value = buf[i].kparmob;
+    fwrite(&value, sizeof(value), 1, fid);
+  }
+
+  // AbsoluteIndex
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    uint value = buf[i].iref;
+    fwrite(&value, sizeof(value), 1, fid);
+  }
+
+  // float vector entries
+  numbytes=sizeof(float)*3*len;
+
+  // normal
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    float value[3];
+    value[0] = buf[i].nx;
+    value[1] = buf[i].ny;
+    value[2] = buf[i].nz;
+    fwrite(value, sizeof(value[0]), 3, fid);
+  }
+
+  // int vector entries
+  numbytes=sizeof(uint)*3*len;
+
+  // vertexParticles
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    uint value[3];
+    value[0] = buf[i].ep1;
+    value[1] = buf[i].ep2;
+    value[2] = buf[i].ep3;
+    fwrite(value, sizeof(value[0]), 3, fid);
+  }
+
+  // double vector entries
+  numbytes=sizeof(double)*3*len;
+
+  // position
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    double value[3];
+    value[0] = (double) buf[i].x;
+    value[1] = (double) buf[i].y;
+    value[2] = (double) buf[i].z;
+    fwrite(value, sizeof(value[0]), 3, fid);
+  }
+
+  numbytes=sizeof(uint)*len;
+  // connectivity
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    uint value = i;
+    fwrite(&value, sizeof(value), 1, fid);
+  }
+  // offsets
+  fwrite(&numbytes, sizeof(numbytes), 1, fid);
+  for (uint i=0; i < len; i++) {
+    uint value = i+1;
+    fwrite(&value, sizeof(value), 1, fid);
+  }
+
+  fprintf(fid," </AppendedData>\n");
+  fprintf(fid,"</VTKFile>");
+
+  fclose(fid);
+
+  return 0;
+}
+
+/* auxiliary functions to write data array entrypoints */
+inline void
+scalar_array(FILE *fid, const char *type, const char *name, size_t offset)
+{
+	fprintf(fid, "	<DataArray type='%s' Name='%s' "
+			"format='appended' offset='%zu'/>\n",
+			type, name, offset);
+}
+
+inline void
+vector_array(FILE *fid, const char *type, const char *name, uint dim, size_t offset)
+{
+	fprintf(fid, "	<DataArray type='%s' Name='%s' NumberOfComponents='%u' "
+			"format='appended' offset='%zu'/>\n",
+			type, name, dim, offset);
+}
+
+inline void
+vector_array(FILE *fid, const char *type, uint dim, size_t offset)
+{
+	fprintf(fid, "	<DataArray type='%s' NumberOfComponents='%u' "
+			"format='appended' offset='%zu'/>\n",
+			type, dim, offset);
 }

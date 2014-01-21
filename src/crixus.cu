@@ -21,14 +21,6 @@
 #ifndef CRIXUS_CU
 #define CRIXUS_CU
 
-#include <iostream>
-#include <fstream>
-#include <vector>
-#include <stdlib.h>
-#include <math.h>
-#include <string.h>
-#include <cuda.h>
-#include "cuda_local.cuh"
 #include "crixus.h"
 #include "return.h"
 #include "crixus_d.cuh"
@@ -1305,15 +1297,41 @@ int crixus_main(int argc, char** argv){
   cout << " [OK]" << endl;
 
   //Output of particles
-  char *fname = new char[flen+5];
-  const char *fend = "h5sph";
-  fname[0] = '0';
-  fname[1] = '.';
-  strncpy(fname+2, argv[1], flen-3);
-  strncpy(fname+flen-1, fend, strlen(fend));
-  fname[flen+4] = '\0';
-  cout << "Writing output to file " << fname << " ...";
-  int err = hdf5_output( buf, nelem, fname);
+  int err = 0;
+  cout << "Choose output option:" << endl;
+  cout << " 1 ... VTK" << endl;
+  cout << " 2 ... H5SPH" << endl;
+  cout << "Input: ";
+  opt = 0;
+  cin >> opt;
+  while(opt<1 || opt>2){
+    cout << "Wrong input try again: ";
+    cin >> opt;
+  }
+  if(opt==2){
+    char *fname = new char[flen+5];
+    const char *fend = "h5sph";
+    fname[0] = '0';
+    fname[1] = '.';
+    strncpy(fname+2, argv[1], flen-3);
+    strncpy(fname+flen-1, fend, strlen(fend));
+    fname[flen+4] = '\0';
+    cout << "Writing output to file " << fname << " ...";
+    err = hdf5_output( buf, nelem, fname);
+    delete [] fname;
+  }
+  else if(opt==1){
+    char *fname = new char[flen+3];
+    const char *fend = "vtu";
+    fname[0] = '0';
+    fname[1] = '.';
+    strncpy(fname+2, argv[1], flen-3);
+    strncpy(fname+flen-1, fend, strlen(fend));
+    fname[flen+2] = '\0';
+    cout << "Writing output to file " << fname << " ...";
+    err = vtk_output( buf, nelem, fname);
+    delete [] fname;
+  }
   if(err==0){ cout << " [OK]" << endl; }
   else {
     cout << " [FAILED]" << endl;
@@ -1328,7 +1346,6 @@ int crixus_main(int argc, char** argv){
   delete [] surf;
   delete [] ep;
   delete [] buf;
-  delete [] fname;
   delete [] fpos;
   //Cuda
   cudaFree( per_d   );

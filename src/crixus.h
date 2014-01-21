@@ -1,6 +1,15 @@
 #ifndef CRIXUS_H
 #define CRIXUS_H
 
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <stdlib.h>
+#include <math.h>
+#include <string.h>
+#include <cuda.h>
+#include "cuda_local.cuh"
+
 //definitions
 #define DATASETNAME "Compound"
 #define sgn(x) (float)((x>0.)-(x<0.))
@@ -33,7 +42,18 @@ int hdf5_output (OutBuf *buf, int len, const char *filename);
 
 int vtk_output (OutBuf *buf, int len, const char *filename);
 
+inline void scalar_array(FILE *fid, const char *type, const char *name, size_t offset);
+
+inline void vector_array(FILE *fid, const char *type, const char *name, uint dim, size_t offset);
+
+inline void vector_array(FILE *fid, const char *type, uint dim, size_t offset);
+
 int crixus_main(int, char**);
+
+/* Endianness check: (char*)&endian_int reads the first byte of the int,
+ * which is 0 on big-endian machines, and 1 in little-endian machines */
+static int endian_int=1;
+static const char* endianness[2] = { "BigEndian", "LittleEndian" };
 
 //debug
 //#define bdebug 2344-960
