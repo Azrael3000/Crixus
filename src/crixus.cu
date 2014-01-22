@@ -64,6 +64,10 @@ int crixus_main(int argc, char** argv){
     cout << "Example use: crixus box.stl 0.1" << endl;
     return NO_DR;
   }
+  else if(argc>3){
+    cout << "Ignoring additional arguments after particle discretization." << endl;
+  }
+  string fname = argv[1];
 
   //looking for cuda devices without timeout
   cout << "Selecting GPU ...";
@@ -110,8 +114,8 @@ int crixus_main(int argc, char** argv){
   }
 
   //Reading file
-  cout << "Opening file " << argv[1] << " ...";
-  ifstream stl_file (argv[1], ios::in);
+  cout << "Opening file " << fname << " ...";
+  ifstream stl_file (fname.c_str(), ios::in);
   if(!stl_file.is_open()){
     cout << " [FAILED]" << endl;
     return FILE_NOT_OPEN;
@@ -138,7 +142,7 @@ int crixus_main(int argc, char** argv){
   cout << " [OK]" << endl;
 
   // reopen file in binary mode
-  stl_file.open(argv[1], ios::in | ios::binary);
+  stl_file.open(fname.c_str(), ios::in | ios::binary);
 
   // read header
   for (int i=0; i<20; i++){
@@ -418,20 +422,10 @@ int crixus_main(int argc, char** argv){
   cout << "\nChecking whether outflow grid is available ...";
   bool boutflow = false;
   int flen = strlen(argv[1]);
-  char *cfname;
-  cfname = new char[flen+9];
-  strncpy(cfname, argv[1], flen-4);
-  cfname[flen-4] = '_';
-  cfname[flen-3] = 'o';
-  cfname[flen-2] = 'u';
-  cfname[flen-1] = 't';
-  cfname[flen-0] = 'g';
-  cfname[flen+1] = 'r';
-  cfname[flen+2] = 'i';
-  cfname[flen+3] = 'd';
-  cfname[flen+8] = '\0';
-  strncpy(cfname+flen+4, argv[1]+flen-4, 4);
-  stl_file.open(cfname, ios::in);
+  string cfname = fname.substr(0,fname.length()-4);
+  cfname += "_outgrid.stl";
+  stl_file.open(cfname.c_str(), ios::in);
+  cout << cfname;
   if(!stl_file.is_open()){
     boutflow = false;
     cout << " [NO]" << endl;
@@ -458,7 +452,7 @@ int crixus_main(int argc, char** argv){
     else{
       cout << " [YES]" << endl;
       // reopen file in binary mode
-      stl_file.open(cfname, ios::in | ios::binary);
+      stl_file.open(cfname.c_str(), ios::in | ios::binary);
     }
   }
   int outnvert, outnbe;
@@ -542,20 +536,9 @@ int crixus_main(int argc, char** argv){
 
   cout << "\nChecking whether inflow grid is available ...";
   bool binflow = false;
-  delete [] cfname;
-  cfname = new char[flen+8];
-  strncpy(cfname, argv[1], flen-4);
-  ifstream stl_in_file;
-  cfname[flen-4] = '_';
-  cfname[flen-3] = 'i';
-  cfname[flen-2] = 'n';
-  cfname[flen-1] = 'g';
-  cfname[flen-0] = 'r';
-  cfname[flen+1] = 'i';
-  cfname[flen+2] = 'd';
-  cfname[flen+7] = '\0';
-  strncpy(cfname+flen+3, argv[1]+flen-4, 4);
-  stl_in_file.open(cfname, ios::in);
+  cfname = fname.substr(0,fname.length()-4);
+  cfname += "_ingrid.stl";
+  ifstream stl_in_file (cfname.c_str(), ios::in);
   if(!stl_in_file.is_open()){
     binflow = false;
     cout << " [NO]" << endl;
@@ -582,7 +565,7 @@ int crixus_main(int argc, char** argv){
     else{
       cout << " [YES]" << endl;
       // reopen file in binary mode
-      stl_in_file.open(cfname, ios::in | ios::binary);
+      stl_in_file.open(cfname.c_str(), ios::in | ios::binary);
     }
   }
   int innvert, innbe;
@@ -700,17 +683,9 @@ int crixus_main(int argc, char** argv){
 
   cout << "Checking wether coarse grid is available ...";
   bool bcoarse = false;
-  strncpy(cfname, argv[1], flen-4);
-  cfname[flen-4] = '_';
-  cfname[flen-3] = 'c';
-  cfname[flen-2] = 'o';
-  cfname[flen-1] = 'a';
-  cfname[flen-0] = 'r';
-  cfname[flen+1] = 's';
-  cfname[flen+2] = 'e';
-  cfname[flen+7] = '\0';
-  strncpy(cfname+flen+3, argv[1]+flen-4, 4);
-  stl_file.open(cfname, ios::in);
+  cfname = fname.substr(0,fname.length()-4);
+  cfname += "_coarse.stl";
+  stl_file.open(cfname.c_str(), ios::in);
   if(!stl_file.is_open()){
     bcoarse = false;
     cout << " [NO]" << endl;
@@ -737,23 +712,16 @@ int crixus_main(int argc, char** argv){
     else{
       cout << " [YES]" << endl;
       // reopen file in binary mode
-      stl_file.open(cfname, ios::in | ios::binary);
+      stl_file.open(cfname.c_str(), ios::in | ios::binary);
     }
   }
 
   cout << "Checking wether fluid geometry is available ...";
   bool bfgeom = false;
-  strncpy(cfname, argv[1], flen-4);
-  cfname[flen-4] = '_';
-  cfname[flen-3] = 'f';
-  cfname[flen-2] = 's';
-  cfname[flen-1] = 'h';
-  cfname[flen-0] = 'a';
-  cfname[flen+1] = 'p';
-  cfname[flen+2] = 'e';
-  strncpy(cfname+flen+3, argv[1]+flen-4, 4);
+  cfname = fname.substr(0,fname.length()-4);
+  cfname += "_fshape.stl";
 
-  ifstream fstl_file (cfname, ios::in);
+  ifstream fstl_file (cfname.c_str(), ios::in);
   if(!fstl_file.is_open()){
     bfgeom = false;
     cout << " [NO]" << endl;
@@ -780,14 +748,13 @@ int crixus_main(int argc, char** argv){
     else{
       cout << " [YES]" << endl;
       // reopen file in binary mode
-      fstl_file.open(cfname, ios::in | ios::binary);
+      fstl_file.open(cfname.c_str(), ios::in | ios::binary);
       if(!fstl_file.is_open()){
         cout << "Error: could not reopen fluid geometry file in binary mode" << endl;
         return -1;
       }
     }
   }
-  delete [] cfname;
 
   bool set = true;
   bool firstfgeom = true;
@@ -1299,7 +1266,7 @@ int crixus_main(int argc, char** argv){
   //Output of particles
   int err = 0;
   cout << "Choose output option:" << endl;
-  cout << " 1 ... VTK" << endl;
+  cout << " 1 ... VTU" << endl;
   cout << " 2 ... H5SPH" << endl;
   cout << "Input: ";
   opt = 0;
@@ -1309,28 +1276,17 @@ int crixus_main(int argc, char** argv){
     cin >> opt;
   }
   if(opt==2){
-    char *fname = new char[flen+5];
-    const char *fend = "h5sph";
-    fname[0] = '0';
-    fname[1] = '.';
-    strncpy(fname+2, argv[1], flen-3);
-    strncpy(fname+flen-1, fend, strlen(fend));
-    fname[flen+4] = '\0';
-    cout << "Writing output to file " << fname << " ...";
-    err = hdf5_output( buf, nelem, fname);
-    delete [] fname;
+    string outname = "0.";
+    outname += fname.substr(0,fname.length()-3);
+    outname += "h5sph";
+    cout << "Writing output to file " << outname << " ...";
+    err = hdf5_output( buf, nelem, outname.c_str());
   }
   else if(opt==1){
-    char *fname = new char[flen+3];
-    const char *fend = "vtu";
-    fname[0] = '0';
-    fname[1] = '.';
-    strncpy(fname+2, argv[1], flen-3);
-    strncpy(fname+flen-1, fend, strlen(fend));
-    fname[flen+2] = '\0';
-    cout << "Writing output to file " << fname << " ...";
-    err = vtk_output( buf, nelem, fname);
-    delete [] fname;
+    string outname = fname.substr(0,fname.length()-3);
+    outname += "vtu";
+    cout << "Writing output to file " << outname << " ...";
+    err = vtk_output( buf, nelem, outname.c_str());
   }
   if(err==0){ cout << " [OK]" << endl; }
   else {
