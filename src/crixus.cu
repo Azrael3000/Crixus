@@ -123,6 +123,7 @@ int crixus_main(int argc, char** argv){
   cout << " [OK]" << endl;
 
   cout << "Checking whether stl file is not ASCII ...";
+  fflush(stdout);
   bool issolid = true;
   char header[6] = "solid";
   for (int i=0; i<5; i++){
@@ -152,20 +153,19 @@ int crixus_main(int argc, char** argv){
   // get number of facets
   stl_file.read((char *)&num_of_facets, sizeof(int));
   cout << "Reading " << num_of_facets << " facets ...";
+  fflush(stdout);
 
   float dr = strtod(argv[2],NULL);
   // define variables
   vector< vector<float> > pos;
   vector< vector<float> > norm;
-  vector< vector<float> >::iterator it;
+  vector< vector<float> >::iterator it, jt;
   vector< vector<unsigned int> > epv;
   unsigned int nvert, nbe;
   vector<unsigned int> idum;
   vector<float> ddum;
-  for(int i=0;i<3;i++){
-    ddum.push_back(0.);
-    idum.push_back(0);
-  }
+  ddum.resize(3, 0.0);
+  idum.resize(3, 0);
 
   // read data
   through = 0;
@@ -180,32 +180,54 @@ int crixus_main(int argc, char** argv){
     }
     for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i];
     norm.push_back(ddum);
+    // save the three vertices in an array
+    vector<float> tmp;
+    tmp.resize(4, 0.0);
+    vector< vector<float> > vdum;
     for(int j=0;j<3;j++){
-      for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
-      int k = 0;
-      bool found = false;
-      for(it = pos.begin(); it < pos.end(); it++){
-        float diff = 0;
-        for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
-        diff = sqrt(diff);
-        if(diff < 1e-5*dr){
-          idum[j] = k;
-          found = true;
-          break;
-        }
-        k++;
+      for(int i=0;i<3;i++){
+        tmp[i] = (float)m_v_floats[i+3*(j+1)];
       }
-      if(!found){
-        pos.push_back(ddum);
-        xmin = (xmin > ddum[0]) ? ddum[0] : xmin;
-        xmax = (xmax < ddum[0]) ? ddum[0] : xmax;
-        ymin = (ymin > ddum[1]) ? ddum[1] : ymin;
-        ymax = (ymax < ddum[1]) ? ddum[1] : ymax;
-        zmin = (zmin > ddum[2]) ? ddum[2] : zmin;
-        zmax = (zmax < ddum[2]) ? ddum[2] : zmax;
-        idum[j] = k;
-      }
+      tmp[3] = (float)j + 0.5; // add 0.5 so that when we (int) cast we get the proper number
+      vdum.push_back(tmp);
     }
+    // loop over all existing vertices to see whether it already exists.
+    int k = 0;
+    for(it = pos.begin(); it < pos.end() && !vdum.empty(); it++){
+      for(jt = vdum.begin(); jt < vdum.end(); ){
+        //compute square distance between two particles
+        float diff = 0.0;
+        for(int i=0;i<3;i++) diff += ((*it)[i] - (*jt)[i])*((*it)[i] - (*jt)[i]);
+        // if we are very far away we can see that after the first distance calculation
+        // none will ever match
+        if(diff > 5.0*dr*dr)
+          break;
+        else if(diff < 1e-5*dr*dr){
+          int localVertIndex = (int)(*jt)[3];
+          idum[localVertIndex] = k;
+          vdum.erase(jt);
+          break; // if we found one match, the others wont match (hopefully)
+        }
+        else
+          ++jt;
+      }
+      k++;
+    }
+    // loop only over the remaining vertices that have not been found
+    for(jt = vdum.begin(); jt < vdum.end(); jt++){
+      for(int j=0; j<3; j++)
+        ddum[j] = (*jt)[j];
+      pos.push_back(ddum);
+      xmin = (xmin > ddum[0]) ? ddum[0] : xmin;
+      xmax = (xmax < ddum[0]) ? ddum[0] : xmax;
+      ymin = (ymin > ddum[1]) ? ddum[1] : ymin;
+      ymax = (ymax < ddum[1]) ? ddum[1] : ymax;
+      zmin = (zmin > ddum[2]) ? ddum[2] : zmin;
+      zmax = (zmax < ddum[2]) ? ddum[2] : zmax;
+      int localVertIndex = (int)(*jt)[3];
+      idum[localVertIndex] = pos.size() - 1;
+    }
+    vdum.clear();
     epv.push_back(idum);
     stl_file.read((char *)&attribute, sizeof(short));
     through++;
@@ -261,6 +283,7 @@ int crixus_main(int argc, char** argv){
 
   //calculate surface and position of boundary elements
   cout << "Calculating surface and position of boundary elements ...";
+  fflush(stdout);
   int numThreads, numBlocks;
   numThreads = threadsPerBlock;
   numBlocks = (int) ceil((float)nbe/(float)numThreads);
@@ -311,6 +334,7 @@ int crixus_main(int argc, char** argv){
   }while(cont!='y' && cont!='n');
   if(cont=='y'){
     cout << "Swapping normals ...";
+    fflush(stdout);
 
     swap_normals<<<numBlocks, numThreads>>> (norm_d, nbe);
 
@@ -349,6 +373,7 @@ int crixus_main(int argc, char** argv){
     if(cont=='y'){
       per[idim] = true;
       cout << "Updating links ...";
+      fflush(stdout);
       for(unsigned int i=0; i<nvert; i++)
         newlink_h[i] = -1;
       CUDA_SAFE_CALL( cudaMemcpy((void *) newlink, (void *) newlink_h, nvert*sizeof(int)   , cudaMemcpyHostToDevice) );
@@ -370,6 +395,7 @@ int crixus_main(int argc, char** argv){
 
   //calculate volume of vertex particles
   cout << "\nCalculating volume of vertex particles ...";
+  fflush(stdout);
   float eps=dr/(float)gres*1e-4;
   int *trisize, *trisize_h;
   float *vol_d;
@@ -420,6 +446,7 @@ int crixus_main(int argc, char** argv){
 
   // searching for in/outflow areas
   cout << "\nChecking whether outflow grid is available ...";
+  fflush(stdout);
   bool boutflow = false;
   int flen = strlen(argv[1]);
   string cfname = fname.substr(0,fname.length()-4);
@@ -434,6 +461,7 @@ int crixus_main(int argc, char** argv){
     boutflow = true;
     cout << " [YES]" << endl;
     cout << "Checking whether outflow stl file is binary ...";
+    fflush(stdout);
     bool issolid = true;
     char header[6] = "solid";
     for (int i=0; i<5; i++){
@@ -467,6 +495,7 @@ int crixus_main(int argc, char** argv){
     // get number of facets
     stl_file.read((char *)&num_of_facets, sizeof(int));
     cout << "Reading " << num_of_facets << " facets of outflow geometry ...";
+    fflush(stdout);
 
     // define variables
     pos.clear();
@@ -535,6 +564,7 @@ int crixus_main(int argc, char** argv){
   }
 
   cout << "\nChecking whether inflow grid is available ...";
+  fflush(stdout);
   bool binflow = false;
   cfname = fname.substr(0,fname.length()-4);
   cfname += "_ingrid.stl";
@@ -547,6 +577,7 @@ int crixus_main(int argc, char** argv){
     binflow = true;
     cout << " [YES]" << endl;
     cout << "Checking whether inflow stl file is binary ...";
+    fflush(stdout);
     bool issolid = true;
     char header[6] = "solid";
     for (int i=0; i<5; i++){
@@ -580,6 +611,7 @@ int crixus_main(int argc, char** argv){
     // get number of facets
     stl_in_file.read((char *)&num_of_facets, sizeof(int));
     cout << "Reading " << num_of_facets << " facets of inflow geometry ...";
+    fflush(stdout);
 
     // define variables
     pos.clear();
@@ -682,6 +714,7 @@ int crixus_main(int argc, char** argv){
   cout << "\nDefining fluid particles ..." << endl;
 
   cout << "Checking wether coarse grid is available ...";
+  fflush(stdout);
   bool bcoarse = false;
   cfname = fname.substr(0,fname.length()-4);
   cfname += "_coarse.stl";
@@ -694,6 +727,7 @@ int crixus_main(int argc, char** argv){
     bcoarse = true;
     cout << " [YES]" << endl;
     cout << "Checking whether coarse geometry stl file is binary ...";
+    fflush(stdout);
     bool issolid = true;
     char header[6] = "solid";
     for (int i=0; i<5; i++){
@@ -717,6 +751,7 @@ int crixus_main(int argc, char** argv){
   }
 
   cout << "Checking wether fluid geometry is available ...";
+  fflush(stdout);
   bool bfgeom = false;
   cfname = fname.substr(0,fname.length()-4);
   cfname += "_fshape.stl";
@@ -730,6 +765,7 @@ int crixus_main(int argc, char** argv){
     bfgeom = true;
     cout << " [YES]" << endl;
     cout << "Checking whether fluid geometry stl file is binary ...";
+    fflush(stdout);
     bool issolid = true;
     char header[6] = "solid";
     for (int i=0; i<5; i++){
@@ -888,6 +924,7 @@ int crixus_main(int argc, char** argv){
           // get number of facets
           stl_file.read((char *)&num_of_facets, sizeof(int));
           cout << "Reading " << num_of_facets << " facets of coarse geometry ...";
+          fflush(stdout);
 
           // define variables
           pos.clear();
@@ -986,6 +1023,7 @@ int crixus_main(int argc, char** argv){
         // get number of facets
         fstl_file.read((char *)&num_of_facets, sizeof(int));
         cout << "Reading " << num_of_facets << " facets of fluid geometry ...";
+        fflush(stdout);
 
         // define variables
         pos.clear();
@@ -1038,6 +1076,7 @@ int crixus_main(int argc, char** argv){
         cnbe   = norm.size();
         cout << " [OK]" << endl;
         cout << "Merging arrays and preparing device for filling ...";
+        fflush(stdout);
         //create and copy vectors to arrays
         cnorma = new uf4   [fnbe];
         cposa  = new uf4   [fnvert];
@@ -1141,6 +1180,7 @@ int crixus_main(int argc, char** argv){
 
   //prepare output structure for particles
   cout << "Creating and initializing of output buffer of particles ...";
+  fflush(stdout);
   OutBuf *buf;
 #ifndef bdebug
   unsigned int nelem = nvert+nbe+nfluid;
@@ -1280,12 +1320,14 @@ int crixus_main(int argc, char** argv){
     outname += fname.substr(0,fname.length()-3);
     outname += "h5sph";
     cout << "Writing output to file " << outname << " ...";
+    fflush(stdout);
     err = hdf5_output( buf, nelem, outname.c_str());
   }
   else if(opt==1){
     string outname = fname.substr(0,fname.length()-3);
     outname += "vtu";
     cout << "Writing output to file " << outname << " ...";
+    fflush(stdout);
     err = vtk_output( buf, nelem, outname.c_str());
   }
   if(err==0){ cout << " [OK]" << endl; }
