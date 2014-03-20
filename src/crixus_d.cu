@@ -659,13 +659,13 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
 }
 
 __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, bool bcoarse, int cnbe, float dr_wall){
-  // checks whether the line-segment determined by s. and e. intersects any available triangle
+  // checks whether the line-segment determined by s. and e. intersects any available triangle and whether s is too close to any triangle
   bool collision = false;
   uf4 s, e, n, v[3], dir;
-  s.a[0] = ((float)si)*dr + (*dmin).a[0];
+  s.a[0] = ((float)si)*dr + (*dmin).a[0]; // s is the position to be filled
   s.a[1] = ((float)sj)*dr + (*dmin).a[1];
   s.a[2] = ((float)sk)*dr + (*dmin).a[2];
-  e.a[0] = ((float)ei)*dr + (*dmin).a[0];
+  e.a[0] = ((float)ei)*dr + (*dmin).a[0]; // e is the already filled position
   e.a[1] = ((float)ej)*dr + (*dmin).a[1];
   e.a[2] = ((float)ek)*dr + (*dmin).a[2];
   for(int i=0; i<3; i++)
@@ -673,7 +673,7 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
 
   // loop through all triangles
   for(int i=0; i<nbe; i++){
-    n = norm[i];
+    n = norm[i]; // normal of the triangle
     for(int j=0; j<3; j++)
       v[j] = pos[ep[i].a[j]];
     // if we don't have a coarse grid, the triangle needs to be close enough so that something can happen
@@ -687,21 +687,118 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
 
     // check if we are too close to a boundary
     if(i<nbe-cnbe){
-      // distance to vertices
-      for(int j=0; j<3; j++){
-        float dist = 0.0;
-        for(int k=0; k<3; k++)
-          dist += (s.a[k]-v[j].a[k])*(s.a[k]-v[j].a[k]);
-        if(dist<dr_wall*dr_wall)
-          return true;
+      uf4 segpos;
+      uf4 normals[3]; // these are the normal vector of the edge towards the segment
+      normals[0].a[3] = 0.0;
+      normals[1].a[3] = 0.0;
+      normals[2].a[3] = 0.0;
+      for(int k=0; k<3; k++){
+        segpos.a[k] = (v[0].a[k]+v[1].a[k]+v[2].a[k])/3.0f;
+        // first normals are the edge vectors
+        normals[0].a[k] = v[1].a[k] - v[0].a[k];
+        // .a[3] contains the square length
+        normals[0].a[3] += normals[0].a[k]*normals[0].a[k];
+        normals[1].a[k] = v[2].a[k] - v[1].a[k];
+        normals[1].a[3] += normals[1].a[k]*normals[1].a[k];
+        normals[2].a[k] = v[0].a[k] - v[2].a[k];
+        normals[2].a[3] += normals[2].a[k]*normals[2].a[k];
       }
-      // distance to segment
-      float dist = 0.0;
+      // now .a[3] contains the length
+      normals[0].a[3] = sqrt(normals[0].a[3]);
+      normals[1].a[3] = sqrt(normals[1].a[3]);
+      normals[2].a[3] = sqrt(normals[2].a[3]);
+      // normalize the edge vectors
+      for(int k=0; k<3; k++){
+        normals[0].a[k] /= normals[0].a[3];
+        normals[1].a[k] /= normals[1].a[3];
+        normals[2].a[k] /= normals[2].a[3];
+      }
+      normals[0].a[3] = 0.0;
+      normals[1].a[3] = 0.0;
+      normals[2].a[3] = 0.0;
+      // .a[3] contains the dot product of the edge vector and segpos - starting vertex
+      for(int k=0; k<3; k++){
+        normals[0].a[3] += normals[0].a[k]*(segpos.a[k]-v[0].a[k]);
+        normals[1].a[3] += normals[1].a[k]*(segpos.a[k]-v[1].a[k]);
+        normals[2].a[3] += normals[2].a[k]*(segpos.a[k]-v[2].a[k]);
+      }
+      // from the vector (segpos - starting vertex) subtract the edge vector component to obtain the normal
+      for(int k=0; k<3; k++){
+        normals[0].a[3] = (segpos.a[k]-v[0].a[k]) - normals[0].a[3]*normals[0].a[k];
+        normals[1].a[3] = (segpos.a[k]-v[1].a[k]) - normals[1].a[3]*normals[1].a[k];
+        normals[2].a[3] = (segpos.a[k]-v[2].a[k]) - normals[2].a[3]*normals[2].a[k];
+      }
+      // projection of s onto the triangle plane
+      uf4 projpos;
+      projpos.a[3] = 0.0;
+      for(int k=0; k<3; k++){
+        // currently the vector from segment to s
+        projpos.a[k] = s.a[k] - segpos.a[k];
+        // dot product between the vector above and the normal
+        projpos.a[3] += projpos.a[k]*n.a[k];
+      }
+      for(int k=0; k<3; k++){
+        // projected postion of s on the triangle plane with respect to segpos
+        projpos.a[k] = projpos.a[k] - projpos.a[3]*n.a[k];
+      }
+      // dot products to check in which region we are
+      uf4 orientations;
       for(int k=0; k<3; k++)
-        // position of segments is no longer available
-        dist += (s.a[k]-(v[0].a[k]+v[1].a[k]+v[2].a[k])/3.0f)*
-                (s.a[k]-(v[0].a[k]+v[1].a[k]+v[2].a[k])/3.0f);
-      if(dist<dr_wall*dr_wall)
+        orientations.a[k] = 0.0;
+      for(int k=0; k<3; k++){
+        orientations.a[0] += (projpos.a[k] + segpos.a[k] - v[0].a[k])*normals[0].a[k];
+        orientations.a[1] += (projpos.a[k] + segpos.a[k] - v[1].a[k])*normals[1].a[k];
+        orientations.a[2] += (projpos.a[k] + segpos.a[k] - v[2].a[k])*normals[2].a[k];
+      }
+      // projection inside the triangle
+      float dist = 0.0;
+      if(orientations.a[0] >= 0.0 && orientations.a[1] >= 0.0 && orientations.a[2] >= 0.0){
+        // distance is equal to the distance between the projection and s
+        for(int k=0; k<3; k++)
+          dist += (projpos.a[k] - (s.a[k] - segpos.a[k]))*(projpos.a[k] - (s.a[k] - segpos.a[k]));
+      }
+      // two orientations are negative
+      else if(orientations.a[1]*orientations.a[2]*orientations.a[3] > 0.0){
+        // distance is equal to the distance between s and the closest vertex
+        uf4 close;
+        if(orientations.a[0] > 0.0)
+          close = v[2];
+        else if(orientations.a[1] > 0.0)
+          close = v[0];
+        else
+          close = v[1];
+        for(int k=0; k<3; k++){
+          dist += (s.a[k] - close.a[k])*(s.a[k]-close.a[k]);
+        }
+      }
+      // only one orientations is negative (all three is not possible)
+      else{
+        // vertices associated with the edge closest to s
+        uf4 x1;
+        uf4 x2;
+        if(orientations.a[0] < 0.0){
+          x1 = v[0];
+          x2 = v[1];
+        }
+        else if(orientations.a[1] < 0.0){
+          x1 = v[1];
+          x2 = v[2];
+        }
+        else{
+          x1 = v[2];
+          x2 = v[0];
+        }
+        // square length of x1 - x2
+        float lx12 = 0.0;
+        // distance is equal to the distance between edge and s
+        for(int k=0; k<3; k++){
+          float tmp = (s.a[(k+1)%3]-x1.a[(k+1)%3])*(s.a[(k+2)%3]-x2.a[(k+2)%3]) - (s.a[(k+2)%3]-x1.a[(k+2)%3])*(s.a[(k+1)%3]-x2.a[(k+1)%3]);
+          dist += tmp*tmp;
+          lx12 += (x1.a[k]-x2.a[k])*(x1.a[k]-x2.a[k]);
+        }
+        dist /= lx12;
+      }
+      if(dist + eps < dr_wall*dr_wall)
         return true;
     }
 
