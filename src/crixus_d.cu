@@ -516,9 +516,9 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   int jdimg = int(floor(((*dmax).a[1]-(*dmin).a[1]+eps)/dr+1));
   int kdimg = int(floor(((*dmax).a[2]-(*dmin).a[2]+eps)/dr+1));
   //min indices
-  int imin = floor(((float)idimg-1.)*(xmin-(*dmin).a[0])/((*dmax).a[0]-(*dmin).a[0])+eps);
-  int jmin = floor(((float)jdimg-1.)*(ymin-(*dmin).a[1])/((*dmax).a[1]-(*dmin).a[1])+eps);
-  int kmin = floor(((float)kdimg-1.)*(zmin-(*dmin).a[2])/((*dmax).a[2]-(*dmin).a[2])+eps);
+  int imin = (int)round(((float)idimg-1.)*(xmin-(*dmin).a[0])/((*dmax).a[0]-(*dmin).a[0]));
+  int jmin = (int)round(((float)jdimg-1.)*(ymin-(*dmin).a[1])/((*dmax).a[1]-(*dmin).a[1]));
+  int kmin = (int)round(((float)kdimg-1.)*(zmin-(*dmin).a[2])/((*dmax).a[2]-(*dmin).a[2]));
 
   int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
   int i,j,k,tmp,nfi_tmp;
