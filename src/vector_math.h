@@ -14,6 +14,22 @@ static __device__ __host__ inline uf4 operator-(uf4 a, const uf4& b){
   return a;
 }
 
+static __device__ __host__ inline uf4 operator*(uf4 a, const float b){
+  a.a[0] *= b;
+  a.a[1] *= b;
+  a.a[2] *= b;
+  a.a[3] *= b;
+  return a;
+}
+
+static __device__ __host__ inline uf4 operator/(uf4 a, const float b){
+  a.a[0] /= b;
+  a.a[1] /= b;
+  a.a[2] /= b;
+  a.a[3] /= b;
+  return a;
+}
+
 static __device__ __host__ inline float dot3(uf4 a, uf4 b){
   return(a.a[0]*b.a[0] + a.a[1]*b.a[1]+ a.a[2]*b.a[2]);
 }

@@ -694,73 +694,52 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
     if(i<nbe-cnbe){
       uf4 segpos;
       uf4 normals[3]; // these are the normal vector of the edge towards the segment
-      normals[0].a[3] = 0.0;
-      normals[1].a[3] = 0.0;
-      normals[2].a[3] = 0.0;
-      for(int k=0; k<3; k++){
-        segpos.a[k] = (v[0].a[k]+v[1].a[k]+v[2].a[k])/3.0f;
-        // first normals are the edge vectors
-        normals[0].a[k] = v[1].a[k] - v[0].a[k];
-        // .a[3] contains the square length
-        normals[0].a[3] += normals[0].a[k]*normals[0].a[k];
-        normals[1].a[k] = v[2].a[k] - v[1].a[k];
-        normals[1].a[3] += normals[1].a[k]*normals[1].a[k];
-        normals[2].a[k] = v[0].a[k] - v[2].a[k];
-        normals[2].a[3] += normals[2].a[k]*normals[2].a[k];
-      }
-      // now .a[3] contains the length
-      normals[0].a[3] = sqrt(normals[0].a[3]);
-      normals[1].a[3] = sqrt(normals[1].a[3]);
-      normals[2].a[3] = sqrt(normals[2].a[3]);
-      // normalize the edge vectors
-      for(int k=0; k<3; k++){
-        normals[0].a[k] /= normals[0].a[3];
-        normals[1].a[k] /= normals[1].a[3];
-        normals[2].a[k] /= normals[2].a[3];
-      }
-      normals[0].a[3] = 0.0;
-      normals[1].a[3] = 0.0;
-      normals[2].a[3] = 0.0;
+      // segpos is the position of the segment
+      segpos = (v[0] + v[1] + v[2])/3.0f;
+      // first normals are the edge vectors
+      normals[0] = v[1] - v[0];
+      // .a[3] contains the length
+      normals[0].a[3] = length3(normals[0]);
+      normals[1] = v[2] - v[1];
+      normals[1].a[3] = length3(normals[1]);
+      normals[2] = v[0] - v[2];
+      normals[2].a[3] = length3(normals[2]);
+
+      // normalize the vectors
+      normals[0] = normals[0] / normals[0].a[3];
+      normals[1] = normals[1] / normals[1].a[3];
+      normals[2] = normals[2] / normals[2].a[3];
+
       // .a[3] contains the dot product of the edge vector and segpos - starting vertex
-      for(int k=0; k<3; k++){
-        normals[0].a[3] += normals[0].a[k]*(segpos.a[k]-v[0].a[k]);
-        normals[1].a[3] += normals[1].a[k]*(segpos.a[k]-v[1].a[k]);
-        normals[2].a[3] += normals[2].a[k]*(segpos.a[k]-v[2].a[k]);
-      }
+      normals[0].a[3] = dot3(normals[0],segpos-v[0]);
+      normals[1].a[3] = dot3(normals[1],segpos-v[1]);
+      normals[2].a[3] = dot3(normals[2],segpos-v[2]);
+
       // from the vector (segpos - starting vertex) subtract the edge vector component to obtain the normal
-      for(int k=0; k<3; k++){
-        normals[0].a[3] = (segpos.a[k]-v[0].a[k]) - normals[0].a[3]*normals[0].a[k];
-        normals[1].a[3] = (segpos.a[k]-v[1].a[k]) - normals[1].a[3]*normals[1].a[k];
-        normals[2].a[3] = (segpos.a[k]-v[2].a[k]) - normals[2].a[3]*normals[2].a[k];
-      }
+      normals[0] = (segpos - v[0]) - normals[0]*normals[0].a[3];
+      normals[1] = (segpos - v[1]) - normals[1]*normals[1].a[3];
+      normals[2] = (segpos - v[2]) - normals[2]*normals[2].a[3];
+
       // projection of s onto the triangle plane
       uf4 projpos;
-      projpos.a[3] = 0.0;
-      for(int k=0; k<3; k++){
-        // currently the vector from segment to s
-        projpos.a[k] = s.a[k] - segpos.a[k];
-        // dot product between the vector above and the normal
-        projpos.a[3] += projpos.a[k]*n.a[k];
-      }
-      for(int k=0; k<3; k++){
-        // projected postion of s on the triangle plane with respect to segpos
-        projpos.a[k] = projpos.a[k] - projpos.a[3]*n.a[k];
-      }
+      // currently the vector from segment to s
+      projpos = s - segpos;
+      // dot product between the vector above and the normal
+      projpos.a[3] = dot3(projpos,n);
+      // projected postion of s on the triangle plane with respect to segpos
+      projpos = projpos - n*projpos.a[3];
+
       // dot products to check in which region we are
       uf4 orientations;
-      for(int k=0; k<3; k++)
-        orientations.a[k] = 0.0;
-      for(int k=0; k<3; k++){
-        orientations.a[0] += (projpos.a[k] + segpos.a[k] - v[0].a[k])*normals[0].a[k];
-        orientations.a[1] += (projpos.a[k] + segpos.a[k] - v[1].a[k])*normals[1].a[k];
-        orientations.a[2] += (projpos.a[k] + segpos.a[k] - v[2].a[k])*normals[2].a[k];
-      }
+      orientations.a[0] = dot(projpos + segpos - v[0],normals[0]);
+      orientations.a[1] = dot(projpos + segpos - v[1],normals[1]);
+      orientations.a[2] = dot(projpos + segpos - v[2],normals[2]);
+
       // projection inside the triangle
       float dist = 0.0;
       if(orientations.a[0] >= 0.0 && orientations.a[1] >= 0.0 && orientations.a[2] >= 0.0){
         // distance is equal to the distance between the projection and s
-        for(int k=0; k<3; k++)
-          dist += (projpos.a[k] - (s.a[k] - segpos.a[k]))*(projpos.a[k] - (s.a[k] - segpos.a[k]));
+        dist = sqlength3(projpos - (s - segpos));
       }
       // two orientations are negative
       else if(orientations.a[1]*orientations.a[2]*orientations.a[3] > 0.0){
@@ -772,9 +751,7 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
           close = v[0];
         else
           close = v[1];
-        for(int k=0; k<3; k++){
-          dist += (s.a[k] - close.a[k])*(s.a[k]-close.a[k]);
-        }
+        dist = sqlength3(s - close);
       }
       // only one orientations is negative (all three is not possible)
       else{
@@ -793,15 +770,11 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
           x1 = v[2];
           x2 = v[0];
         }
-        // square length of x1 - x2
-        float lx12 = 0.0;
         // distance is equal to the distance between edge and s
-        for(int k=0; k<3; k++){
-          float tmp = (s.a[(k+1)%3]-x1.a[(k+1)%3])*(s.a[(k+2)%3]-x2.a[(k+2)%3]) - (s.a[(k+2)%3]-x1.a[(k+2)%3])*(s.a[(k+1)%3]-x2.a[(k+1)%3]);
-          dist += tmp*tmp;
-          lx12 += (x1.a[k]-x2.a[k])*(x1.a[k]-x2.a[k]);
-        }
-        dist /= lx12;
+        uf4 x21 = x2 - x1;
+        uf4 sx1 = s - x1;
+        float tdot = dot(x21,sx1);
+        dist = sqlength3(sx1 - x21/sqlength3(x21)*tdot);
       }
       if(dist + eps < dr_wall*dr_wall)
         return true;
