@@ -25,6 +25,7 @@
 #include "return.h"
 #include "crixus_d.cuh"
 #include "lock.cuh"
+#include "vector_math.h"
 
 using namespace std;
 
@@ -943,8 +944,6 @@ int crixus_main(int argc, char** argv){
             {
               stl_file.read((char *)&m_v_floats[i], sizeof(float));
             }
-            for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i];
-            norm.push_back(ddum);
             for(int j=0;j<3;j++){
               for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
               int k = 0;
@@ -965,6 +964,25 @@ int crixus_main(int argc, char** argv){
                 idum[j] = k;
               }
             }
+            // get normal of triangle
+            float lenNorm = 0.0;
+            for(int i=0;i<3;i++){
+              ddum[i] = (float)m_v_floats[i];
+              lenNorm += ddum[i]*ddum[i];
+            }
+            // this is for blender if stl files are saved without normals
+            // here we don't care for the orientation so let's just compute it
+            if(lenNorm < eps){
+              uf4 v10, v20;
+              for(int i=0; i<3; i++){
+                v10.a[i] = pos[idum[1]][i] - pos[idum[0]][i];
+                v20.a[i] = pos[idum[2]][i] - pos[idum[0]][i];
+              }
+              uf4 tnorm = cross(v10, v20);
+              for(int i=0; i<3; i++)
+                ddum[i] = tnorm.a[i];
+            }
+            norm.push_back(ddum);
             epv.push_back(idum);
             stl_file.read((char *)&attribute, sizeof(short));
             through++;
@@ -1041,8 +1059,6 @@ int crixus_main(int argc, char** argv){
           for (int i=0; i<12; i++){
             fstl_file.read((char *)&m_v_floats[i], sizeof(float));
           }
-          for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i];
-          norm.push_back(ddum);
           for(int j=0;j<3;j++){
             for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
             int k = 0;
@@ -1063,6 +1079,25 @@ int crixus_main(int argc, char** argv){
               idum[j] = k+fnvert;
             }
           }
+          // get normal of triangle
+          float lenNorm = 0.0;
+          for(int i=0;i<3;i++){
+            ddum[i] = (float)m_v_floats[i];
+            lenNorm += ddum[i]*ddum[i];
+          }
+          // this is for blender if stl files are saved without normals
+          // here we don't care for the orientation so let's just compute it
+          if(lenNorm < eps){
+            uf4 v10, v20;
+            for(int i=0; i<3; i++){
+              v10.a[i] = pos[idum[1]][i] - pos[idum[0]][i];
+              v20.a[i] = pos[idum[2]][i] - pos[idum[0]][i];
+            }
+            uf4 tnorm = cross(v10, v20);
+            for(int i=0; i<3; i++)
+              ddum[i] = tnorm.a[i];
+          }
+          norm.push_back(ddum);
           epv.push_back(idum);
           fstl_file.read((char *)&attribute, sizeof(short));
           through++;
