@@ -6,6 +6,7 @@
 #include "crixus_d.cuh"
 #include "return.h"
 #include "crixus.h"
+#include "vector_math.h"
 
 // dot product (3D) which allows vector operations in arguments
 #define dot(u,v)   ((u).a[0] * (v).a[0] + (u).a[1] * (v).a[1] + (u).a[2] * (v).a[2])
@@ -277,28 +278,32 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
     // calculate average normal at edge
     itris = 0;
     for(unsigned int j=0; j<nbe; j++){
-      for(unsigned int k=0; k<tris; k++){
-        if((int)(edgen[k].a[3]+eps)==2)
-          continue;
-        int vfound = 0;
-        for(unsigned int l=0; l<3; l++){
-          if(ep[j].a[l] == tri[k][0] || ep[j].a[l] == tri[k][1])
-            vfound++;
-        }
-        if(vfound==2){
-          for(unsigned int l=0; l<3; l++)
-            edgen[k].a[l] += norm[j].a[l];
-          edgen[k].a[3]+=1.;
-        }
-        if((int)(edgen[k].a[3]+eps)==2){ //cross product to determine normal of wall
-          float tmpvec[3], edge[3];
-          for(unsigned int n=0; n<3; n++){
-            edge[n] = pos[tri[k][0]].a[n] - pos[tri[k][1]].a[n];
-            if(per[n]&&fabs(edge[n])>2*dr)  edge[n] += sgn(edge[n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
+      // only use segments which are close enough
+      if(sqlength3(pos[i]-pos[j+nvert]) < dr*dr*9){
+        for(unsigned int k=0; k<tris; k++){
+          if((int)(edgen[k].a[3]+eps)==2)
+            continue;
+          int vfound = 0;
+          for(unsigned int l=0; l<3; l++){
+            if(ep[j].a[l] == tri[k][0] || ep[j].a[l] == tri[k][1])
+              vfound++;
           }
-          for(unsigned int n=0; n<3; n++)  tmpvec[n] = edgen[k].a[(n+1)%3]*edge[(n+2)%3]-edgen[k].a[(n+2)%3]*edge[(n+1)%3];
-          for(unsigned int n=0; n<3; n++) edgen[k].a[n] = tmpvec[n];
+          if(vfound==2){
+            for(unsigned int l=0; l<3; l++)
+              edgen[k].a[l] += norm[j].a[l];
+            edgen[k].a[3]+=1.;
+          }
+          if((int)(edgen[k].a[3]+eps)==2){ //cross product to determine normal of wall
+            uf4 edge;
+            edge = pos[tri[k][0]] - pos[tri[k][1]];
+            for(unsigned int n=0; n<3; n++)
+              if(per[n]&&fabs(edge.a[n])>2*dr)  edge.a[n] += sgn(edge.a[n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
+            edgen[k] = cross(edgen[k], edge);
+            itris++;
+          }
         }
+        if(itris == tris)
+          break;
       }
     }
 
