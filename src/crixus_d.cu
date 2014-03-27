@@ -573,18 +573,24 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   return;
 }
 
-__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sIndex, unsigned int sBit, Lock lock, bool bcoarse, int cnbe, float dr_wall)
+__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sInd, Lock lock, bool bcoarse, int cnbe, float dr_wall, int iteration)
 {
   // this function is responsible for filling a complex geometry with fluid
+  const unsigned int bitPerUint = 8*sizeof(unsigned int);
+
   // place seed point
   int nfi_tmp = 0;
-  if(threadIdx.x==0 && blockIdx.x==0 && !(fpos[sIndex] & sBit)){
-    nfi_tmp++;
-    fpos[sIndex] = fpos[sIndex] | sBit;
+  if(iteration == 1 && threadIdx.x==0 && blockIdx.x==0)
+  {
+    int sIndex = sInd/bitPerUint;
+    unsigned int sBit = 1<<(sInd%bitPerUint);
+    if(!(fpos[sIndex] & sBit)){
+      nfi_tmp++;
+      fpos[sIndex] = fpos[sIndex] | sBit;
+    }
   }
 
   __shared__ int nfi_cache[threadsPerBlock];
-  const unsigned int bitPerUint = 8*sizeof(unsigned int);
   //dim global
   ui4 dimg;
   dimg.a[0] = int(floor(((*dmax).a[0]-(*dmin).a[0]+eps)/dr+1));
@@ -592,9 +598,20 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
   dimg.a[2] = int(floor(((*dmax).a[2]-(*dmin).a[2]+eps)/dr+1));
 
   int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
-  int i,j,k,tmp;
+  int i,j,k;
 
-  //while(((int)ceil(arrayInd/((float)bitPerUint)))<dimg.a[0]*dimg.a[1]*dimg.a[2]){
+  // indices of seed point
+  int is = -1;
+  int js = -1;
+  int ks = -1;
+  int tmp;
+  if(iteration==1){
+    ks = sInd/(dimg.a[0]*dimg.a[1]);
+    tmp = sInd%(dimg.a[0]*dimg.a[1]);
+    js = tmp/dimg.a[0];
+    is = tmp%dimg.a[0];
+  }
+
   while(arrayInd<(int)ceil(((float)dimg.a[0]*dimg.a[1]*dimg.a[2])/((float)bitPerUint))){
     // loop through all bits of the array entry with index arrayInd
     for(int ii=0, bitInd=arrayInd*bitPerUint; ii<bitPerUint; ii++, bitInd++){
@@ -607,6 +624,21 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
         i = tmp%dimg.a[0];
         // are we in the big box?
         if(i<dimg.a[0] && j<dimg.a[1] && k<dimg.a[2]){
+          // in iteration 1 check direckt line of sight to seed point
+          if(iteration==1){
+            // note that in the following check we check all triangles, regardless of their distance
+            bool collision = checkCollision(i,j,k,is,js,ks, norm, ep, pos, nbe, dr, dmin, dimg, eps, false, cnbe, dr_wall);
+            if(!collision){
+              fpos[arrayInd] = fpos[arrayInd] | bit;
+              nfi_tmp++;
+              // if we fill this particle, then for the next bit we can use the present as seed point
+              // as this one is closer we don't have to loop over so many particles
+              is = i;
+              js = j;
+              ks = k;
+              continue;
+            }
+          }
           //look around
           for(int ij=0; ij<6; ij++){
             int ioff = 0, joff = 0, koff = 0;
@@ -676,6 +708,9 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
   for(int i=0; i<3; i++)
     dir.a[i] = e.a[i] - s.a[i];
 
+  // the maximum distance for influence is equal to |(s-e)/2| + 3 * dr + dr_wall, the factor 3 is chosen a bit too large to make sure everything is ok
+  float sqMaxInflDist = length3((s-e)/2.0f) + 3.0f*dr + dr_wall;
+  sqMaxInflDist *= sqMaxInflDist;
   // loop through all triangles
   for(int i=0; i<nbe; i++){
     n = norm[i]; // normal of the triangle
@@ -683,10 +718,9 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
       v[j] = pos[ep[i].a[j]];
     // if we don't have a coarse grid, the triangle needs to be close enough so that something can happen
     if(!bcoarse && i<nbe-cnbe){
-      float dist = 0.0;
-      for(int j=0;j<3;j++)
-        dist += (s.a[j]-v[0].a[j])*(s.a[j]-v[0].a[j]);
-      if(dist>16*dr*dr)
+      // dist = square distance from one vertex to the midpoint between s and e
+      float dist = sqlength3((s+e)/2.0f - v[0]);
+      if(dist > sqMaxInflDist)
         continue;
     }
 

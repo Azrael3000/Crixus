@@ -904,8 +904,6 @@ int crixus_main(int argc, char** argv){
       int idimg = (int)floor((dmax.a[0]-dmin.a[0]+eps)/dr+1);
       int jdimg = (int)floor((dmax.a[1]-dmin.a[1]+eps)/dr+1);
       int sInd = ispos + jspos*idimg + kspos*idimg*jdimg;
-      int sIndex = sInd/bitPerUint;
-      unsigned int sBit = 1<<(sInd%bitPerUint);
 
       // initialize geometry if first run
       if(firstfgeom){
@@ -1191,7 +1189,7 @@ int crixus_main(int argc, char** argv){
         nfi = 0;
         CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
-        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sIndex, sBit, lock_f, bcoarse, cnbe, dr_wall);
+        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sInd, lock_f, bcoarse, cnbe, dr_wall, iteration);
 
         CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
         nfluid += nfi;
