@@ -838,8 +838,8 @@ int crixus_main(int argc, char** argv){
   for(unsigned int i=0; i<maxf; i++) fpos[i] = 0;
   CUDA_SAFE_CALL( cudaMemcpy((void *) fpos_d, (void *) fpos, maxf*sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
-  set = true;
-  while(set){
+  bool continueFill = true;
+  while(continueFill){
     xmin = xmax = ymin = ymax = zmin = zmax = 0.;
     if(bfgeom){
       cout << "Choose option:" << endl;
@@ -1022,14 +1022,25 @@ int crixus_main(int argc, char** argv){
           fep = new ui4 [fnbe];
           fnorma = new uf4 [fnbe];
           fposa = new uf4 [fnvert];
+          unsigned int inbe = 0;
           for(unsigned int i=0; i<max(fnvert,fnbe); i++){
             if(i<fnbe){
-              fep[i] = ep[i];
-              fnorma[i] = norma[i];
+              // if a fluid container was set then remove all normals and ep of segments that are outside the box + 2dr
+              if(! set ||
+                 (fabs(posa[i+nvert].a[0] - (dmax.a[0]+dmin.a[0])/2.0f) < (dmax.a[0]-dmin.a[0])/2.0f + 2.0f*dr &&
+                  fabs(posa[i+nvert].a[1] - (dmax.a[1]+dmin.a[1])/2.0f) < (dmax.a[1]-dmin.a[1])/2.0f + 2.0f*dr &&
+                  fabs(posa[i+nvert].a[2] - (dmax.a[2]+dmin.a[2])/2.0f) < (dmax.a[2]-dmin.a[2])/2.0f + 2.0f*dr   )){
+                fep[inbe] = ep[i];
+                fnorma[inbe] = norma[i];
+                inbe++;
+              }
             }
+            // all vertices will be copied regardless of their location
             if(i<fnvert)
               fposa[i] = posa[i];
           }
+          if(set)
+            fnbe = inbe;
         }
 
         // read fluid geometry
@@ -1196,7 +1207,7 @@ int crixus_main(int argc, char** argv){
         cont = 'n';
         cout << "Maximum number of fluid boxes reached, no more fluid can be added." << endl;
       }
-      if(cont=='n') set = false;
+      if(cont=='n') continueFill = false;
     }while(cont!='y' && cont!='n');
 
     if(!firstfgeom && cont == 'n'){
