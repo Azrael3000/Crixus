@@ -453,7 +453,6 @@ int crixus_main(int argc, char** argv){
   string cfname = fname.substr(0,fname.length()-4);
   cfname += "_outgrid.stl";
   stl_file.open(cfname.c_str(), ios::in);
-  cout << cfname;
   if(!stl_file.is_open()){
     boutflow = false;
     cout << " [NO]" << endl;
