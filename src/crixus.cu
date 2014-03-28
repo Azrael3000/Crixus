@@ -9,10 +9,12 @@
  * - Version 0.6:
  *   - in/outflow option
  *   - replace uf4 by uf3 (class with float[3])
+ *   - do more calculations using the vector_math.h library
  *   - while doing calculations on kernel check
  *     files on host and maybe read them already
  *   - clean up code (free norm, ep when they
  *     are no longer needed and not at the end)
+ *   - refactor the codes so that crixus.cu is split into functions
  * - Version 0.7:
  *   - CSG for volume computation
  *
@@ -32,20 +34,21 @@ using namespace std;
 int crixus_main(int argc, char** argv){
   //host
   cout << endl;
-  cout << "\t*********************************" << endl;
-  cout << "\t*                               *" << endl;
-  cout << "\t*          C R I X U S          *" << endl;
-  cout << "\t*                               *" << endl;
-  cout << "\t*********************************" << endl;
-  cout << "\t* Version: 0.5                  *" << endl;
-  cout << "\t* Date   : 04.12.2013           *" << endl;
-  cout << "\t* Authors: Arno Mayrhofer       *" << endl;
-  cout << "\t*          Christophe Kassiotis *" << endl;
-  cout << "\t*          F-X Morel            *" << endl;
-  cout << "\t*          Martin Ferrand       *" << endl;
-  cout << "\t*          Agnes Leroy          *" << endl;
-  cout << "\t*          Antoine Joly         *" << endl;
-  cout << "\t*********************************" << endl;
+  cout << "\t**************************************" << endl;
+  cout << "\t*                                    *" << endl;
+  cout << "\t*             C R I X U S            *" << endl;
+  cout << "\t*                                    *" << endl;
+  cout << "\t**************************************" << endl;
+  cout << "\t* Version     : 0.5                  *" << endl;
+  cout << "\t* Date        : 27.03.2014           *" << endl;
+  cout << "\t* Author      : Arno Mayrhofer       *" << endl;
+  cout << "\t* Contributors: Christophe Kassiotis *" << endl;
+  cout << "\t*               F-X Morel            *" << endl;
+  cout << "\t*               Martin Ferrand       *" << endl;
+  cout << "\t*               Agnes Leroy          *" << endl;
+  cout << "\t*               Antoine Joly         *" << endl;
+  cout << "\t*               Giuseppe Bilotta     *" << endl;
+  cout << "\t**************************************" << endl;
   cout << endl;
   float m_v_floats[12];
   unsigned int through;
