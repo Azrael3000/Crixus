@@ -457,7 +457,7 @@ int crixus_main(int argc, char** argv){
   for(int sbi=1; sbi<10; sbi++){
     cout << "\nChecking whether special boundary grid #" << sbi << " is available ...";
     cfname = fname.substr(0,fname.length()-4);
-    cfname += "_sbgrid";
+    cfname += "_sbgrid_";
     stringstream ss;
     ss << sbi;
     cfname += ss.str();
