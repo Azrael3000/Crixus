@@ -878,25 +878,22 @@ __device__ bool checkTriangleCollision(uf4 s, uf4 dir, uf4 n, uf4 *vert, float e
     return true;                      // I is in T
 }
 
-__global__ void identifyInOutFlowSegments (uf4 *pos, int nvert, int nbe, uf4 *outpos, ui4 *outep, int outnbe, uf4 *inpos, ui4 *inep, int innbe, float eps, short *inout){
+__global__ void identifySpecialBoundarySegments (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *sbpos, ui4 *sbep, int sbnbe, float eps, int *sbid, int sbi){
   int id = threadIdx.x + blockIdx.x*blockDim.x;
   uf4 vb[3];
-  uf4 spos;
+  uf4 spos, norm;
   while(id < nbe){
     spos = pos[nvert+id];
-    for(int i=0; i<outnbe; i++){
+    for(int i=0; i<sbnbe; i++){
       for(int j=0; j<3; j++)
-        vb[j] = outpos[outep[i].a[j]];
-      if(segInTri(vb,spos,eps)){
-        inout[id] += 1;
-        break;
-      }
-    }
-    for(int i=0; i<innbe; i++){
+        vb[j] = sbpos[sbep[i].a[j]];
       for(int j=0; j<3; j++)
-        vb[j] = inpos[inep[i].a[j]];
-      if(segInTri(vb,spos,eps)){
-        inout[id] += 2;
+        norm.a[j] = (vb[1].a[(j+1)%3]-vb[0].a[(j+1)%3])*(vb[2].a[(j+2)%3]-vb[0].a[(j+2)%3])
+                  - (vb[1].a[(j+2)%3]-vb[0].a[(j+2)%3])*(vb[2].a[(j+1)%3]-vb[0].a[(j+1)%3]);
+      if(segInTri(vb,spos,norm,eps)){
+        sbid[nvert+id] = sbi;
+        for(int j=0; j<3; j++)
+          atomicAdd(&sbid[ep[id].a[j]],-1);
         break;
       }
     }
@@ -905,8 +902,26 @@ __global__ void identifyInOutFlowSegments (uf4 *pos, int nvert, int nbe, uf4 *ou
   return;
 }
 
-__device__ bool segInTri(uf4 *vb, uf4 spos, float eps){
+__global__ void identifySpecialBoundaryVertices (int *sbid, int i, int *trisize, int nvert){
+
+  int id = threadIdx.x + blockIdx.x*blockDim.x;
+  while(id < nvert){
+    if(-sbid[id] == trisize[id])
+      sbid[id] = i;
+    else if(sbid[id] < 0)
+      sbid[id] = 0;
+    id += blockDim.x*gridDim.x;
+  }
+  return;
+}
+
+__device__ bool segInTri(uf4 *vb, uf4 spos, uf4 norm, float eps){
   float dot00, dot01, dot02, dot11, dot12, invdet, u, v;
+  dot00 = 0.;
+  for(int i=0; i<3; i++)
+    dot00 += norm.a[i]*(spos.a[i]-vb[0].a[i]);
+  if(fabs(dot00) > eps)
+    return false;
   dot00 = dot01 = dot02 = dot11 = dot12 = 0.;
   for(int i=0; i<3; i++){
     float ba = (vb[1].a[i] - vb[0].a[i]);

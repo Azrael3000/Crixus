@@ -41,7 +41,9 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
 
 __device__ bool checkTriangleCollision(uf4 s, uf4 e, uf4 n, uf4 *v, float eps);
 
-__global__ void identifyInOutFlowSegments (uf4 *pos, int nvert, int nbe, uf4 *outpos, ui4 *outep, int outnbe, uf4 *inpos, ui4 *inep, int innbe, float eps, short *inout);
+__global__ void identifySpecialBoundarySegments (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *sbpos, ui4 *sbep, int sbnbe, float eps, int *sbid, int i);
 
-__device__ bool segInTri(uf4 *vb, uf4 spos, float eps);
+__global__ void identifySpecialBoundaryVertices (int *sbid, int i, int *trisize, int nvert);
+
+__device__ bool segInTri(uf4 *vb, uf4 spos, uf4 norm, float eps);
 #endif

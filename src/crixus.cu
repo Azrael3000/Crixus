@@ -7,7 +7,7 @@
  *   - specification of fluid container
  *   - check if fluid particles are closer than dr to the wall
  * - Version 0.6:
- *   - in/outflow option
+ *   - in/outflow/moving boundary option
  *   - replace uf4 by uf3 (class with float[3])
  *   - do more calculations using the vector_math.h library
  *   - while doing calculations on kernel check
@@ -448,48 +448,52 @@ int crixus_main(int argc, char** argv){
   cudaFree(vol_d   );
   cudaFree(surf_d  );
 
-  // searching for in/outflow areas
-  cout << "\nChecking whether outflow grid is available ...";
-  fflush(stdout);
-  bool boutflow = false;
+  // searching for special boundaries
+  int *sbid;
+  int *sbid_d;
+  bool sbpresent = false;
+  string cfname;
   int flen = strlen(argv[1]);
-  string cfname = fname.substr(0,fname.length()-4);
-  cfname += "_outgrid.stl";
-  stl_file.open(cfname.c_str(), ios::in);
-  if(!stl_file.is_open()){
-    boutflow = false;
-    cout << " [NO]" << endl;
-  }
-  else{
-    boutflow = true;
-    cout << " [YES]" << endl;
-    cout << "Checking whether outflow stl file is binary ...";
-    fflush(stdout);
-    bool issolid = true;
-    char header[6] = "solid";
-    for (int i=0; i<5; i++){
-      char dum;
-      stl_file.read((char *)&dum, sizeof(char));
-      if(dum!=header[i]){
-        issolid = false;
-        break;
-      }
-    }
-    stl_file.close();
-    if(issolid){
+  for(int sbi=1; sbi<10; sbi++){
+    cout << "\nChecking whether special boundary grid #" << sbi << " is available ...";
+    cfname = fname.substr(0,fname.length()-4);
+    cfname += "_sbgrid";
+    stringstream ss;
+    ss << sbi;
+    cfname += ss.str();
+    cfname += ".stl";
+    stl_file.open(cfname.c_str(), ios::in);
+    if(!stl_file.is_open()){
       cout << " [NO]" << endl;
-      boutflow = false;
+      break;
     }
     else{
       cout << " [YES]" << endl;
-      // reopen file in binary mode
-      stl_file.open(cfname.c_str(), ios::in | ios::binary);
+      cout << "Checking whether special boundary stl file #" << sbi << " is binary ...";
+      bool issolid = true;
+      char header[6] = "solid";
+      for (int i=0; i<5; i++){
+        char dum;
+        stl_file.read((char *)&dum, sizeof(char));
+        if(dum!=header[i]){
+          issolid = false;
+          break;
+        }
+      }
+      stl_file.close();
+      if(issolid){
+        cout << " [NO]" << endl;
+        break;
+      }
+      else{
+        cout << " [YES]" << endl;
+        // reopen file in binary mode
+        stl_file.open(cfname.c_str(), ios::in | ios::binary);
+      }
     }
-  }
-  int outnvert, outnbe;
-  uf4 *outposa;
-  ui4 *outep;
-  if(boutflow){
+    int sbnvert, sbnbe;
+    uf4 *sbposa;
+    ui4 *sbep;
     // read header
     for (int i=0; i<20; i++){
       float dum;
@@ -497,7 +501,7 @@ int crixus_main(int argc, char** argv){
     }
     // get number of facets
     stl_file.read((char *)&num_of_facets, sizeof(int));
-    cout << "Reading " << num_of_facets << " facets of outflow geometry ...";
+    cout << "Reading " << num_of_facets << " facets of special boundary geometry #" << sbi << " ...";
     fflush(stdout);
 
     // define variables
@@ -545,173 +549,58 @@ int crixus_main(int argc, char** argv){
       cout << " [FAILED]" << endl;
       return READ_ERROR;
     }
-    outnvert = pos.size();
-    outnbe   = epv.size();
+    sbnvert = pos.size();
+    sbnbe   = epv.size();
     //create and copy vectors to arrays
-    outposa  = new uf4   [outnvert];
-    outep    = new ui4   [outnbe];
-    for(unsigned int i=0; i<max(outnvert,outnbe); i++){
-      if(i<outnbe){
+    sbposa  = new uf4   [sbnvert];
+    sbep    = new ui4   [sbnbe];
+    for(unsigned int i=0; i<max(sbnvert,sbnbe); i++){
+      if(i<sbnbe){
         for(int j=0; j<3; j++){
-          outep[i].a[j] = epv[i][j];
+          sbep[i].a[j] = epv[i][j];
         }
       }
-      if(i<outnvert){
+      if(i<sbnvert){
         for(unsigned int j=0; j<3; j++)
-          outposa[i].a[j] = pos[i][j];
+          sbposa[i].a[j] = pos[i][j];
       }
     }
     pos.clear();
     epv.clear();
+    sbpresent = true;
     cout << " [OK]" << endl;
-  }
 
-  cout << "\nChecking whether inflow grid is available ...";
-  fflush(stdout);
-  bool binflow = false;
-  cfname = fname.substr(0,fname.length()-4);
-  cfname += "_ingrid.stl";
-  ifstream stl_in_file (cfname.c_str(), ios::in);
-  if(!stl_in_file.is_open()){
-    binflow = false;
-    cout << " [NO]" << endl;
-  }
-  else{
-    binflow = true;
-    cout << " [YES]" << endl;
-    cout << "Checking whether inflow stl file is binary ...";
-    fflush(stdout);
-    bool issolid = true;
-    char header[6] = "solid";
-    for (int i=0; i<5; i++){
-      char dum;
-      stl_in_file.read((char *)&dum, sizeof(char));
-      if(dum!=header[i]){
-        issolid = false;
-        break;
-      }
+    // after reading in data for special boundaries copy data to gpu and identify interior boundary segments and surrounded vertex particles
+    sbid = new int[nbe+nvert];
+    for(int i=0; i<nbe+nvert; i++) sbid[i] = 0;
+    uf4 *sbpos_d;
+    ui4 *sbep_d;
+    if(sbi==1){
+      CUDA_SAFE_CALL( cudaMalloc((void **) &sbid_d , (nvert+nbe)*sizeof(int)) );
+      CUDA_SAFE_CALL( cudaMemcpy((void *) sbid_d, (void *) sbid, (nvert+nbe)*sizeof(int), cudaMemcpyHostToDevice) );
     }
-    stl_in_file.close();
-    if(issolid){
-      cout << " [NO]" << endl;
-      binflow = false;
-    }
-    else{
-      cout << " [YES]" << endl;
-      // reopen file in binary mode
-      stl_in_file.open(cfname.c_str(), ios::in | ios::binary);
-    }
-  }
-  int innvert, innbe;
-  uf4 *inposa;
-  ui4 *inep;
-  if(binflow){
-    // read header
-    for (int i=0; i<20; i++){
-      float dum;
-      stl_in_file.read((char *)&dum, sizeof(float));
-    }
-    // get number of facets
-    stl_in_file.read((char *)&num_of_facets, sizeof(int));
-    cout << "Reading " << num_of_facets << " facets of inflow geometry ...";
-    fflush(stdout);
-
-    // define variables
-    pos.clear();
-    epv.clear();
-    for(int i=0;i<3;i++){
-      ddum[i] = 0.;
-      idum[i] = 0;
-    }
-
-    // read data
-    through = 0;
-    while ((through < num_of_facets) & (!stl_in_file.eof()))
-    {
-      for (int i=0; i<12; i++)
-      {
-        stl_in_file.read((char *)&m_v_floats[i], sizeof(float));
-      }
-      for(int j=0;j<3;j++){
-        for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
-        int k = 0;
-        bool found = false;
-        for(it = pos.begin(); it < pos.end(); it++){
-          float diff = 0;
-          for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
-          diff = sqrt(diff);
-          if(diff < 1e-5*dr){
-            idum[j] = k;
-            found = true;
-            break;
-          }
-          k++;
-        }
-        if(!found){
-          pos.push_back(ddum);
-          idum[j] = k;
-        }
-      }
-      epv.push_back(idum);
-      stl_in_file.read((char *)&attribute, sizeof(short));
-      through++;
-    }
-    stl_in_file.close();
-    if(num_of_facets != epv.size()){
-      cout << " [FAILED]" << endl;
-      return READ_ERROR;
-    }
-    innvert = pos.size();
-    innbe   = epv.size();
-    //create and copy vectors to arrays
-    inposa  = new uf4   [innvert];
-    inep    = new ui4   [innbe];
-    for(unsigned int i=0; i<max(innvert,innbe); i++){
-      if(i<innbe){
-        for(int j=0; j<3; j++){
-          inep[i].a[j] = epv[i][j];
-        }
-      }
-      if(i<innvert){
-        for(unsigned int j=0; j<3; j++)
-          inposa[i].a[j] = pos[i][j];
-      }
-    }
-    pos.clear();
-    epv.clear();
-    cout << " [OK]" << endl;
-  }
-
-  /* in/outflow is for version 0.6
-  // after reading in data for in/outflow copy data to gpu and identify interior boundary segments
-  short *inout;
-  if(binflow || boutflow){
-    short *inout_d;
-    uf4 *outpos_d, *inpos_d;
-    ui4 *outep_d , *inep_d;
-    inout = new short[nbe];
-    CUDA_SAFE_CALL( cudaMalloc((void **) &inout_d  ,      nbe*sizeof(short)) );
-    CUDA_SAFE_CALL( cudaMalloc((void **) &inpos_d  ,  innvert*sizeof(uf4  )) );
-    CUDA_SAFE_CALL( cudaMalloc((void **) &outpos_d , outnvert*sizeof(uf4  )) );
-    CUDA_SAFE_CALL( cudaMalloc((void **) &inep_d   ,    innbe*sizeof(uf4  )) );
-    CUDA_SAFE_CALL( cudaMalloc((void **) &outep_d  ,   outnbe*sizeof(ui4  )) );
-    CUDA_SAFE_CALL( cudaMemcpy((void *) outposa, (void *) outpos_d, outnvert*sizeof(uf4) , cudaMemcpyHostToDevice) );
-    CUDA_SAFE_CALL( cudaMemcpy((void *) outep  , (void *) outep_d ,   outnbe*sizeof(ui4) , cudaMemcpyHostToDevice) );
-    CUDA_SAFE_CALL( cudaMemcpy((void *) inposa , (void *) inpos_d ,  innvert*sizeof(uf4) , cudaMemcpyHostToDevice) );
-    CUDA_SAFE_CALL( cudaMemcpy((void *) inep   , (void *) inep_d  ,    innbe*sizeof(ui4) , cudaMemcpyHostToDevice) );
+    CUDA_SAFE_CALL( cudaMalloc((void **) &sbpos_d  ,     sbnvert*sizeof(uf4)) );
+    CUDA_SAFE_CALL( cudaMalloc((void **) &sbep_d   ,       sbnbe*sizeof(ui4)) );
+    CUDA_SAFE_CALL( cudaMemcpy((void *) sbpos_d, (void *) sbposa, sbnvert*sizeof(uf4), cudaMemcpyHostToDevice) );
+    CUDA_SAFE_CALL( cudaMemcpy((void *) sbep_d , (void *) sbep  ,   sbnbe*sizeof(ui4), cudaMemcpyHostToDevice) );
     numBlocks = (int) ceil((float)nbe/(float)numThreads);
     numBlocks = min(numBlocks,maxblock);
 
-    identifyInOutFlowSegments<<<numBlocks, numThreads>>> (pos_d, nvert, nbe, outpos_d, outep_d, outnbe, inpos_d, inep_d, innbe, eps, inout_d);
+    identifySpecialBoundarySegments<<<numBlocks, numThreads>>> (pos_d, ep_d, nvert, nbe, sbpos_d, sbep_d, sbnbe, eps, sbid_d, sbi);
 
-    CUDA_SAFE_CALL( cudaMemcpy((void *) inout_d, (void *) inout, nbe*sizeof(short) , cudaMemcpyDeviceToHost) );
-    cudaFree( inout     );
-    cudaFree( outpos_d  );
-    cudaFree( inpos_d );
-    cudaFree( outep_d   );
-    cudaFree( inep_d  );
+    numBlocks = (int) ceil((float)nvert/(float)numThreads);
+    numBlocks = min(numBlocks,maxblock);
+
+    identifySpecialBoundaryVertices<<<numBlocks, numThreads>>> (sbid_d, sbi, trisize, nvert);
+
+    cudaFree( sbpos_d );
+    cudaFree( sbep_d  );
   }
-  */
+  cudaFree( trisize );
+  if(sbpresent){
+    CUDA_SAFE_CALL( cudaMemcpy((void *) sbid, (void *) sbid_d, (nbe+nvert)*sizeof(int) , cudaMemcpyDeviceToHost) );
+    cudaFree( sbid_d  );
+  }
 
   //setting up fluid particles
   cout << "\nDefining fluid particles ..." << endl;
@@ -1260,7 +1149,7 @@ int crixus_main(int argc, char** argv){
       buf[k].surf = 0.;
       buf[k].kpar = 1;
       buf[k].kfluid = 1;
-      buf[k].kent = 1;
+      buf[k].kent = 0;
       buf[k].kparmob = 0;
       buf[k].iref = k;
       buf[k].ep1 = 0;
@@ -1292,7 +1181,10 @@ int crixus_main(int argc, char** argv){
     buf[k].surf = 0.;
     buf[k].kpar = 2;
     buf[k].kfluid = 1;
-    buf[k].kent = 1;
+    if(sbpresent)
+      buf[k].kent = sbid[i];
+    else
+      buf[k].kent = 0;
     buf[k].kparmob = 0;
     buf[k].iref = k;
     buf[k].ep1 = 0;
@@ -1316,7 +1208,10 @@ int crixus_main(int argc, char** argv){
       buf[k].kpar += inout[i];
     */
     buf[k].kfluid = 1;
-    buf[k].kent = 1;
+    if(sbpresent)
+      buf[k].kent = sbid[i];
+    else
+      buf[k].kent = 0;
     buf[k].kparmob = 0;
     buf[k].iref = k;
     buf[k].ep1 = nfluid+ep[i-nvert].a[0] - nvshift[ep[i-nvert].a[0]];
