@@ -732,20 +732,15 @@ int crixus_main(int argc, char** argv){
   bool continueFill = true;
   while(continueFill){
     xmin = xmax = ymin = ymax = zmin = zmax = 0.;
-    if(bfgeom){
-      cout << "Choose option:" << endl;
-      cout << " 1 ... Fluid in a box" << endl;
-      cout << " 2 ... Fluid based on geometry" << endl;
-      cout << "Input: ";
-      opt = 0;
+    cout << "Choose option:" << endl;
+    cout << " 1 ... Fluid in a box" << endl;
+    cout << " 2 ... Fluid based on geometry" << endl;
+    cout << "Input: ";
+    opt = 0;
+    cin >> opt;
+    while(opt<1 || opt>2){
+      cout << "Wrong input try again: ";
       cin >> opt;
-      while(opt<1 || opt>2){
-        cout << "Wrong input try again: ";
-        cin >> opt;
-      }
-    }
-    else{
-      opt = 1;
     }
 
     // data for geometry bounding grid and fluid bounding grid
