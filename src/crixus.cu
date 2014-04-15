@@ -644,17 +644,14 @@ int crixus_main(int argc, char** argv){
 
   cout << "Checking wether fluid geometry is available ...";
   fflush(stdout);
-  bool bfgeom = false;
   cfname = fname.substr(0,fname.length()-4);
   cfname += "_fshape.stl";
 
   ifstream fstl_file (cfname.c_str(), ios::in);
   if(!fstl_file.is_open()){
-    bfgeom = false;
     cout << " [NO]" << endl;
   }
   else{
-    bfgeom = true;
     cout << " [YES]" << endl;
     cout << "Checking whether fluid geometry stl file is binary ...";
     fflush(stdout);
@@ -671,7 +668,6 @@ int crixus_main(int argc, char** argv){
     fstl_file.close();
     if(issolid){
       cout << " [NO]" << endl;
-      bfgeom = false;
     }
     else{
       cout << " [YES]" << endl;
