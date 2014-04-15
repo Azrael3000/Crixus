@@ -440,7 +440,6 @@ int crixus_main(int argc, char** argv){
   CUDA_SAFE_CALL( cudaMemcpy((void *) vola,(void *) vol_d, nvert*sizeof(float), cudaMemcpyDeviceToHost) );
   //cout << endl;
   //for(int i=0; i<30; i++) cout << i << " " << vola[i] << endl;
-  cudaFree( trisize );
   cudaFree( vol_d   );
 
   cout << " [OK]" << endl;
