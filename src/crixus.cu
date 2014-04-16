@@ -1,13 +1,9 @@
 /***********************************\
  *
  * TODO LIST:
- * - Version 0.5:
- *   - filling via bit field
- *   - filling of complex geometries
- *   - specification of fluid container
- *   - check if fluid particles are closer than dr to the wall
  * - Version 0.6:
  *   - in/outflow/moving boundary option
+ *   - read/write config file
  *   - replace uf4 by uf3 (class with float[3])
  *   - do more calculations using the vector_math.h library
  *   - while doing calculations on kernel check
