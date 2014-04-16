@@ -317,6 +317,8 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
       }
 #endif
 
+    bool cubesInitialized = false;
+
     //start big loop over all numerical integration points
     for(unsigned int k=0; k<gsize; k++){
     for(unsigned int l=0; l<gsize; l++){
@@ -337,7 +339,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 
       //create cubes
       for(unsigned int j=0; j<tris; j++){
-        if(k+l+m==0){
+        if(!cubesInitialized){
           //setting up cube directions
           for(unsigned int n=0; n<3; n++) cvec[j][2][n] = norm[tri[j][2]].a[n]; //normal of boundary element
           vnorm = 0.;
@@ -372,10 +374,11 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 #ifdef bdebug
       if(i==bdebug) debug[k+l*gsize+m*gsize*gsize].a[3] = 1.;
 #endif
-          if(k+l+m!=0) break; //makes sure that in the first grid point we loop over all triangles j s.t. values are initialized correctly.
+          if(cubesInitialized) break; //makes sure that in the first grid point we loop over all triangles j s.t. values are initialized correctly.
         }
       }
       //end create cubes
+      cubesInitialized = true;
 
       //remove points based on planes (voronoi diagram & walls)
       float tvec[3][3];
