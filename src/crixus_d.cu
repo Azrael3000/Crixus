@@ -187,7 +187,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
   //sort neighbouring vertices
   //calculate volume (geometry factor)
   unsigned int gsize = gres*2+1; //makes sure that grid is large enough
-  float gdr = dr/(float)gres;
+  float gdr = dr/2.0/(float)gres;
   float vgrid;
   float cvec[trimax][12][3];
   int tri[trimax][3];
@@ -501,7 +501,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
     //end looping through all gridpoints
 
     //calculate volume
-    vol[i] *= pow(dr/(float)gres,3);
+    vol[i] *= pow(dr/2.0/(float)gres,3);
 
     i += blockDim.x*gridDim.x;
   }
