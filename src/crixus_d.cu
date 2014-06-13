@@ -279,7 +279,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
     itris = 0;
     for(unsigned int j=0; j<nbe; j++){
       // only use segments which are close enough
-      if(sqlength3(pos[i]-pos[j+nvert]) < dr*dr*9){
+      if(sqlength3(perCorPos(pos[i]-pos[j+nvert],per,dmax,dmin)) < dr*dr*9){
         for(unsigned int k=0; k<tris; k++){
           if((int)(edgen[k].a[3]+eps)==2)
             continue;
