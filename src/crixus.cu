@@ -443,6 +443,11 @@ int crixus_main(int argc, char** argv){
   cudaFree(vol_d   );
   cudaFree(surf_d  );
 
+  // seting epsilon to something meaningful based on the geometry size
+  eps = 1e-10f;
+  for(unsigned int i=0; i<3; i++)
+    eps = max((dmax.a[i]-dmin.a[i])*1e-5f,eps);
+
   // searching for special boundaries
   int *sbid;
   int *sbid_d;
@@ -687,9 +692,6 @@ int crixus_main(int argc, char** argv){
   unsigned int *fpos, *fpos_d;
   unsigned int *nfi_d;
 
-  eps = 1e-10;
-  for(unsigned int i=0; i<3; i++)
-    eps = max((dmax.a[i]-dmin.a[i])*1e-6,eps);
   cont = 'n';
   do{
     if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
