@@ -637,7 +637,7 @@ int crixus_main(int argc, char** argv){
     }
   }
 
-  cout << "Checking wether fluid geometry is available ...";
+  cout << "Checking whether fluid geometry is available ...";
   fflush(stdout);
   cfname = fname.substr(0,fname.length()-4);
   cfname += "_fshape.stl";
