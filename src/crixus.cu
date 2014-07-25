@@ -593,6 +593,11 @@ int crixus_main(int argc, char** argv){
 
     identifySpecialBoundaryVertices<<<numBlocks, numThreads>>> (sbid_d, sbi, trisize, nvert);
 
+    numBlocks = (int) ceil((float)nbe/(float)numThreads);
+    numBlocks = min(numBlocks,maxblock);
+
+    checkForSingularSegments<<<numBlocks, numThreads>>> (pos_d, ep_d, nvert, nbe, sbid_d, sbi);
+
     cudaFree( sbpos_d );
     cudaFree( sbep_d  );
   }

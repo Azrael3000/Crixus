@@ -918,6 +918,29 @@ __global__ void identifySpecialBoundaryVertices (int *sbid, int i, int *trisize,
   return;
 }
 
+// This function loops over all segments and checks whether all segments that are part of a
+// special boundary with id sbi has at least one vertex that also has the same id. This is
+// required for particle deletion at open boundaries as there needs to be at least one vertex
+// to which the mass can be redistributed. If no vertex is found a warning is thrown.
+__global__ void checkForSingularSegments (uf4 *pos, ui4 *ep, int nvert, int nbe, int *sbid, int sbi){
+  int id = threadIdx.x + blockIdx.x*blockDim.x;
+  while(id < nbe){
+    if(sbid[nvert + id] == sbi){
+      int sameVert = 0;
+      for(int i=0; i<3; i++){
+        if(sbid[ep[id].a[i]] == sbi)
+          sameVert += 1;
+      }
+      if(sameVert == 0)
+        printf("-- WARNING -- segment at position (%lf,%lf,%lf) has no vertex of same special boundary id %d\n",
+          pos[nvert+id].a[0], pos[nvert+id].a[1], pos[nvert+id].a[2], sbi);
+    }
+
+    id += blockDim.x*gridDim.x;
+  }
+  return;
+}
+
 __device__ bool segInTri(uf4 *vb, uf4 spos, uf4 norm, float eps){
   float dot00, dot01, dot02, dot11, dot12, invdet, u, v;
   dot00 = 0.;
