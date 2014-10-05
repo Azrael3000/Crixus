@@ -691,7 +691,6 @@ int crixus_main(int argc, char** argv){
   uf4 *cnorma, *cposa;
   ui4 *cep;
   unsigned int nfluid = 0;
-  unsigned int nfbox = 0;
   unsigned int maxf = 0, maxfn;
   int opt;
   unsigned int *fpos, *fpos_d;
@@ -1085,10 +1084,6 @@ int crixus_main(int argc, char** argv){
       if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
       cout << "Another fluid container (y/n): ";
       cin >> cont;
-      if(nfbox==maxfbox){
-        cont = 'n';
-        cout << "Maximum number of fluid boxes reached, no more fluid can be added." << endl;
-      }
       if(cont=='n') continueFill = false;
     }while(cont!='y' && cont!='n');
 
