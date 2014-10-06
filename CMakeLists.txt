@@ -28,7 +28,7 @@ include_directories (${CUDA_INCLUDE_DIRS} ${HDF5_INCLUDE_DIRS})
 # Add source directory to project.
 add_subdirectory(src)
 
-#Always compile Sphynx and SphynxClient
+#Always compile Crixus
 add_executable(
   Crixus
   src/crixus.cpp
