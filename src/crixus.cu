@@ -428,7 +428,6 @@ int crixus_main(int argc, char** argv){
   cout << " [OK]" << endl;
 
   cudaFree(vol_d   );
-  cudaFree(surf_d  );
 
   // seting epsilon to something meaningful based on the geometry size
   eps = 1e-10f;
@@ -439,6 +438,8 @@ int crixus_main(int argc, char** argv){
   int *sbid;
   int *sbid_d;
   bool sbpresent = false;
+  bool needsUpdate = false;
+  bool *needsUpdate_d;
   string cfname;
   int flen = strlen(argv[1]);
   for(int sbi=1; sbi<10; sbi++){
@@ -563,7 +564,9 @@ int crixus_main(int argc, char** argv){
     uf4 *sbpos_d;
     ui4 *sbep_d;
     if(sbi==1){
+      CUDA_SAFE_CALL( cudaMalloc((void **) &needsUpdate_d , sizeof(bool)) );
       CUDA_SAFE_CALL( cudaMalloc((void **) &sbid_d , (nvert+nbe)*sizeof(int)) );
+      CUDA_SAFE_CALL( cudaMemcpy((void *) needsUpdate_d, (void *) &needsUpdate, sizeof(bool), cudaMemcpyHostToDevice) );
       CUDA_SAFE_CALL( cudaMemcpy((void *) sbid_d, (void *) sbid, (nvert+nbe)*sizeof(int), cudaMemcpyHostToDevice) );
     }
     CUDA_SAFE_CALL( cudaMalloc((void **) &sbpos_d  ,     sbnvert*sizeof(uf4)) );
@@ -583,7 +586,7 @@ int crixus_main(int argc, char** argv){
     numBlocks = (int) ceil((float)nbe/(float)numThreads);
     numBlocks = min(numBlocks,maxblock);
 
-    checkForSingularSegments<<<numBlocks, numThreads>>> (pos_d, ep_d, nvert, nbe, sbid_d, sbi);
+    checkForSingularSegments<<<numBlocks, numThreads>>> (pos_d, ep_d, norm_d, surf_d, nvert, nbe, sbid_d, sbi, dr, eps, per_d, dmin_d, dmax_d, needsUpdate_d);
 
     cudaFree( sbpos_d );
     cudaFree( sbep_d  );
@@ -591,8 +594,18 @@ int crixus_main(int argc, char** argv){
   cudaFree( trisize );
   if(sbpresent){
     CUDA_SAFE_CALL( cudaMemcpy((void *) sbid, (void *) sbid_d, (nbe+nvert)*sizeof(int) , cudaMemcpyDeviceToHost) );
+    CUDA_SAFE_CALL( cudaMemcpy((void *) &needsUpdate, (void *) needsUpdate_d, sizeof(bool), cudaMemcpyDeviceToHost) );
+    if (needsUpdate) {
+      cout << "\nInformation: Special boundaries required repositioning of some segments" << endl;
+      // copy ep, surf back to host
+      CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d ,         nbe*sizeof(ui4), cudaMemcpyDeviceToHost) );
+      CUDA_SAFE_CALL(  cudaMemcpy((void *) surf,(void *) surf_d ,         nbe*sizeof(float), cudaMemcpyDeviceToHost) );
+      CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d, (nvert+nbe)*sizeof(uf4), cudaMemcpyDeviceToHost) );
+    }
     cudaFree( sbid_d  );
   }
+
+  cudaFree(surf_d  );
 
   //setting up fluid particles
   cout << "\nDefining fluid particles ..." << endl;

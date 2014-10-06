@@ -45,7 +45,7 @@ __global__ void identifySpecialBoundarySegments (uf4 *pos, ui4 *ep, int nvert, i
 
 __global__ void identifySpecialBoundaryVertices (int *sbid, int i, int *trisize, int nvert);
 
-__global__ void checkForSingularSegments (uf4 *pos, ui4 *ep, int nvert, int nbe, int *sbid, int sbi);
+__global__ void checkForSingularSegments (uf4 *pos, ui4 *ep, uf4 *norm, float *surf, int nvert, int nbe, int *sbid, int sbi, float dr, float eps, bool *per, uf4 *dmin, uf4 *dmax, bool *needsUpdate);
 
 __device__ bool segInTri(uf4 *vb, uf4 spos, uf4 norm, float eps);
 #endif

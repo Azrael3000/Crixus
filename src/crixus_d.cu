@@ -921,8 +921,10 @@ __global__ void identifySpecialBoundaryVertices (int *sbid, int i, int *trisize,
 // This function loops over all segments and checks whether all segments that are part of a
 // special boundary with id sbi has at least one vertex that also has the same id. This is
 // required for particle deletion at open boundaries as there needs to be at least one vertex
-// to which the mass can be redistributed. If no vertex is found a warning is thrown.
-__global__ void checkForSingularSegments (uf4 *pos, ui4 *ep, int nvert, int nbe, int *sbid, int sbi){
+// to which the mass can be redistributed. If no vertex is we search for a fitting triangle
+// (same sbid, normal, one coinciding edge) and then swap the coinciding edge so that this
+// defect can be avoided
+__global__ void checkForSingularSegments (uf4 *pos, ui4 *ep, uf4 *norm, float *surf, int nvert, int nbe, int *sbid, int sbi, float dr, float eps, bool *per, uf4 *dmin, uf4 *dmax, bool *needsUpdate){
   int id = threadIdx.x + blockIdx.x*blockDim.x;
   while(id < nbe){
     if(sbid[nvert + id] == sbi){
@@ -931,9 +933,77 @@ __global__ void checkForSingularSegments (uf4 *pos, ui4 *ep, int nvert, int nbe,
         if(sbid[ep[id].a[i]] == sbi)
           sameVert += 1;
       }
-      if(sameVert == 0)
-        printf("-- WARNING -- segment at position (%lf,%lf,%lf) has no vertex of same special boundary id %d\n",
-          pos[nvert+id].a[0], pos[nvert+id].a[1], pos[nvert+id].a[2], sbi);
+      if (sameVert == 0) {
+        bool flipped = false;
+        for (int i=0; i < nbe; i++) {
+          if (id==i)
+            continue;
+          // only check segments which are close enough
+          if (sqlength3(perCorPos(pos[id]-pos[i],per,dmax,dmin)) < dr*dr*4) {
+            // check if one edge cooincides
+            int sameVert = 0;
+            // index of non coinciding vertex of segment id
+            int nonCoinVert_id = 0;
+            for (int j=0; j<3; j++) {
+              bool found = false;
+              for (int k=0; k<3; k++) {
+                if (ep[id].a[j] == ep[i].a[k]) {
+                  sameVert++;
+                  found = true;
+                  break;
+                }
+              }
+              if (!found)
+                nonCoinVert_id = j;
+            }
+            // check if there are exactly to identical vertices
+            if (sameVert != 2)
+              continue;
+            // check if the normal is the same
+            if (dot3(norm[id],norm[i]) < 1.0f - eps)
+              continue;
+            // check if the other segment has the same boundary type
+            if (sbid[nvert+i] != sbi)
+              continue;
+            // check that the other segment doesn't have the same singularity issue
+            sameVert = 0;
+            for(int j=0; j<3; j++){
+              if(sbid[ep[i].a[j]] == sbi)
+                sameVert += 1;
+            }
+            if (sameVert == 0)
+              continue;
+            // get index of non coinciding vertex of segment i
+            int nonCoinVert_i = 0;
+            for (int j=0; j<3; j++) {
+              if (ep[i].a[j] != ep[id].a[(nonCoinVert_id+1)%3] &&
+                  ep[i].a[j] != ep[id].a[(nonCoinVert_id+2)%3]   )
+                 nonCoinVert_i = j;
+            }
+            // flip the coinciding edge
+            ep[id].a[(nonCoinVert_id+2)%3] = ep[i].a[nonCoinVert_i];
+            ep[i].a[(nonCoinVert_i+2)%3] = ep[id].a[nonCoinVert_id];
+            // normals remain the same, vertex masses are assumed to stay the same
+            // surface area and positions need to be recomputed
+            //formula: a = 1/4 sqrt(4*a^2*b^2-(a^2+b^2-c^2)^2)
+            float a_id_2 = sqlength3(pos[ep[id].a[0]]-pos[ep[id].a[1]]);
+            float b_id_2 = sqlength3(pos[ep[id].a[1]]-pos[ep[id].a[2]]);
+            float c_id_2 = sqlength3(pos[ep[id].a[2]]-pos[ep[id].a[0]]);
+            float a_i_2 = sqlength3(pos[ep[i].a[0]]-pos[ep[i].a[1]]);
+            float b_i_2 = sqlength3(pos[ep[i].a[1]]-pos[ep[i].a[2]]);
+            float c_i_2 = sqlength3(pos[ep[i].a[2]]-pos[ep[i].a[0]]);
+            surf[id] = 0.25*sqrt(4.*a_id_2*b_id_2-pow(a_id_2+b_id_2-c_id_2,2));
+            surf[i] = 0.25*sqrt(4.*a_i_2*b_i_2-pow(a_i_2+b_i_2-c_i_2,2));
+            pos[nvert+id] = (pos[ep[id].a[0]] + pos[ep[id].a[1]] + pos[ep[id].a[2]])/3.0f;
+            pos[nvert+i] = (pos[ep[i].a[0]] + pos[ep[i].a[1]] + pos[ep[i].a[2]])/3.0f;
+            flipped = true;
+            (*needsUpdate) = true;
+            break;
+          }
+        }
+        if (!flipped)
+          printf("-- ERROR -- Found meshing issue at special boundary\n");
+      }
     }
 
     id += blockDim.x*gridDim.x;
