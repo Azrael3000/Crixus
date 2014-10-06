@@ -765,7 +765,7 @@ int crixus_main(int argc, char** argv){
       spos[1] = config.GetReal(fillSection.str(), "yseed", 1e9);
       spos[2] = config.GetReal(fillSection.str(), "zseed", 1e9);
       cout << "Seed point (" << spos[0] << ", " << spos[1] << ", " << spos[2] << ")" << endl;
-      dr_wall = config.GetReal(fillSection.str(), "dr_wall", 1e9);
+      dr_wall = config.GetReal(fillSection.str(), "dr_wall", dr);
       cout << "Distance from fluid particles to vertices and segments: " << dr_wall << endl;
       // initialize placing of seed point
       int ispos = (int)round((spos[0]-dmin.a[0]+eps)/dr);
