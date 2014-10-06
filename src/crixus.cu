@@ -53,21 +53,22 @@ int crixus_main(int argc, char** argv){
   const unsigned int bitPerUint = 8*sizeof(unsigned int);
 
   if(argc==1){
-    cout << "No file specified." << endl;
-    cout << "Correct use: crixus filename dr" << endl;
-    cout << "Example use: crixus box.stl 0.1" << endl;
+    cout << "No configuration file specified." << endl;
+    cout << "Correct use: crixus filename" << endl;
+    cout << "Example use: crixus box.ini" << endl;
     return NO_FILE;
   }
-  else if(argc==2){
-    cout << "No particle discretization specified." << endl;
-    cout << "Correct use: crixus filename dr" << endl;
-    cout << "Example use: crixus box.stl 0.1" << endl;
-    return NO_DR;
+  else if(argc>2){
+    cout << "Ignoring additional arguments after configuration file." << endl;
   }
-  else if(argc>3){
-    cout << "Ignoring additional arguments after particle discretization." << endl;
+  string configfname = argv[1];
+  INIReader config(configfname);
+
+  if (config.ParseError() < 0) {
+    std::cout << "Can't load configuration file " << configfname << endl;;
+    return CANT_READ_CONFIG;
   }
-  string fname = argv[1];
+  string fname = config.Get("mesh", "stlfile", "UNKNOWN");
 
   //looking for cuda devices without timeout
   cout << "Selecting GPU ...";
@@ -122,6 +123,9 @@ int crixus_main(int argc, char** argv){
   }
   cout << " [OK]" << endl;
 
+  float dr = config.GetReal("mesh", "dr", -1);
+  cout << "Mesh size: " << dr << endl;
+
   cout << "Checking whether stl file is not ASCII ...";
   fflush(stdout);
   bool issolid = true;
@@ -155,7 +159,6 @@ int crixus_main(int argc, char** argv){
   cout << "Reading " << num_of_facets << " facets ...";
   fflush(stdout);
 
-  float dr = strtod(argv[2],NULL);
   // define variables
   vector< vector<float> > pos;
   vector< vector<float> > norm;
@@ -326,13 +329,8 @@ int crixus_main(int argc, char** argv){
     cout << "\tMaybe a Blender STL file? Save with ParaView instead." << endl;
     cout << "\t=====================================================\n" << endl;
   }
-  char cont= 'n';
-  do{
-    if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
-    cout << "Swap normals (y/n): ";
-    cin >> cont;
-  }while(cont!='y' && cont!='n');
-  if(cont=='y'){
+
+  if (config.GetBoolean("mesh", "swap_normals", false)) {
     cout << "Swapping normals ...";
     fflush(stdout);
 
@@ -357,22 +355,11 @@ int crixus_main(int argc, char** argv){
   CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d , (void *) &dmin    ,       sizeof(float4), cudaMemcpyHostToDevice) );
   CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d , (void *) &dmax    ,       sizeof(float4), cudaMemcpyHostToDevice) );
   for(unsigned int idim=0; idim<3; idim++){
-    cont='n';
-    do{
-      if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
-      if(idim==0){
-        cout << "X-periodicity (y/n): "; }
-      else if(idim==1){
-        cout << "Y-periodicity (y/n): ";
-      }
-      else if(idim==2){
-        cout << "Z-periodicity (y/n): ";
-      }
-      cin >> cont;
-    }while(cont!='y' && cont!='n');
-    if(cont=='y'){
+    string pstring = (idim==0) ? "x" : ((idim==1) ? "y" : "z");
+
+    if (config.GetBoolean("periodicity", pstring, false)) {
       per[idim] = true;
-      cout << "Updating links ...";
+      cout << "Updating links for " << pstring << "-periodicity ...";
       fflush(stdout);
       for(unsigned int i=0; i<nvert; i++)
         newlink_h[i] = -1;
@@ -696,21 +683,19 @@ int crixus_main(int argc, char** argv){
   unsigned int *fpos, *fpos_d;
   unsigned int *nfi_d;
 
-  cont = 'n';
-  do{
-    if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
-    cout << "Specify fluid container (y/n): ";
-    cin >> cont;
-    if(cont=='n') set = false;
-  }while(cont!='y' && cont!='n');
+  set = config.GetBoolean("fluid_container", "use", false);
 
   if(set){
-    cout << "Specify fluid container:" << endl;
-    cout << "Min coordinates (x,y,z): ";
     // From here on dmin, dmax represent the fluid container and no longer the domain container.
-    cin >> dmin.a[0] >> dmin.a[1] >> dmin.a[2];
-    cout << "Max coordinates (x,y,z): ";
-    cin >> dmax.a[0] >> dmax.a[1] >> dmax.a[2];
+    dmin.a[0] = config.GetReal("fluid_container", "xmin", 1e9);
+    dmin.a[1] = config.GetReal("fluid_container", "ymin", 1e9);
+    dmin.a[2] = config.GetReal("fluid_container", "zmin", 1e9);
+    dmax.a[0] = config.GetReal("fluid_container", "xmax", -1e9);
+    dmax.a[1] = config.GetReal("fluid_container", "ymax", -1e9);
+    dmax.a[2] = config.GetReal("fluid_container", "zmax", -1e9);
+    cout << "Fluid container specified:" << endl;
+    cout << "Min coordinates (" << dmin.a[0] << ", " << dmin.a[1] << ", " << dmin.a[2] << ")" << endl;
+    cout << "Max coordinates (" << dmax.a[0] << ", " << dmax.a[1] << ", " << dmax.a[2] << ")" << endl;
     CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d , (void *) &dmin    ,       sizeof(float4), cudaMemcpyHostToDevice) );
     CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d , (void *) &dmax    ,       sizeof(float4), cudaMemcpyHostToDevice) );
   }
@@ -727,18 +712,17 @@ int crixus_main(int argc, char** argv){
   CUDA_SAFE_CALL( cudaMemcpy((void *) fpos_d, (void *) fpos, maxf*sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
   bool continueFill = true;
+  int nFill = 0;
   while(continueFill){
+    stringstream fillSection;
+    fillSection << "fill_" << nFill;
+    string option=config.Get(fillSection.str(), "option", "box");
+    if (option=="geometry")
+      opt = 2;
+    else
+      opt = 1;
+    cout << "\nOption for fill #" << nFill << ": " << option << endl;
     xmin = xmax = ymin = ymax = zmin = zmax = 0.;
-    cout << "Choose option:" << endl;
-    cout << " 1 ... Fluid in a box" << endl;
-    cout << " 2 ... Fluid based on geometry" << endl;
-    cout << "Input: ";
-    opt = 0;
-    cin >> opt;
-    while(opt<1 || opt>2){
-      cout << "Wrong input try again: ";
-      cin >> opt;
-    }
 
     // data for geometry bounding grid and fluid bounding grid
     unsigned int fnvert=0, fnbe=0;
@@ -746,14 +730,16 @@ int crixus_main(int argc, char** argv){
     ui4 *fep=NULL;
 
     if(opt==1){ // fluid based on rectangular box
-      cout << "Enter dimensions of fluid box:" << endl;
-      cout << "xmin xmax: ";
-      cin >> xmin >> xmax;
-      cout << "ymin ymax: ";
-      cin >> ymin >> ymax;
-      cout << "zmin zmax: ";
-      cin >> zmin >> zmax;
-      if(fabs(xmin-xmax)<1e-5*dr || fabs(ymin-ymax)<1e-5*dr || fabs(zmin-zmax)<1e-5*dr){
+      xmin = config.GetReal(fillSection.str(), "xmin", 1e9);
+      ymin = config.GetReal(fillSection.str(), "ymin", 1e9);
+      zmin = config.GetReal(fillSection.str(), "zmin", 1e9);
+      xmax = config.GetReal(fillSection.str(), "xmax", -1e9);
+      ymax = config.GetReal(fillSection.str(), "ymax", -1e9);
+      zmax = config.GetReal(fillSection.str(), "zmax", -1e9);
+      cout << "Fluid box specified:" << endl;
+      cout << "Min coordinates (" << xmin << ", " << ymin << ", " << zmin << ")" << endl;
+      cout << "Max coordinates (" << xmax << ", " << ymax << ", " << zmax << ")" << endl;
+      if(xmax-xmin<1e-5*dr || ymax-ymin<1e-5*dr || zmax-zmin<1e-5*dr){
         cout << "\nMistake in input for fluid box dimensions" << endl;
         cout << "Fluid particle definition ... [FAILED]" << endl;
         return FLUID_NDEF;
@@ -775,11 +761,12 @@ int crixus_main(int argc, char** argv){
     else if(opt==2){ // fluid based on geometry
       // get seed point
       float spos[3], dr_wall;
-      cout << "Please specify a seed point." << endl;
-      cout << "x, y, z = ";
-      cin >> spos[0] >> spos[1] >> spos[2];
-      cout << "Specify distance from fluid particles to vertex particles and segments: ";
-      cin >> dr_wall;
+      spos[0] = config.GetReal(fillSection.str(), "xseed", 1e9);
+      spos[1] = config.GetReal(fillSection.str(), "yseed", 1e9);
+      spos[2] = config.GetReal(fillSection.str(), "zseed", 1e9);
+      cout << "Seed point (" << spos[0] << ", " << spos[1] << ", " << spos[2] << ")" << endl;
+      dr_wall = config.GetReal(fillSection.str(), "dr_wall", 1e9);
+      cout << "Distance from fluid particles to vertices and segments: " << dr_wall << endl;
       // initialize placing of seed point
       int ispos = (int)round((spos[0]-dmin.a[0]+eps)/dr);
       int jspos = (int)round((spos[1]-dmin.a[1]+eps)/dr);
@@ -1079,19 +1066,17 @@ int crixus_main(int argc, char** argv){
       } while(nfi > 0 && iteration < max_iterations);
     }
 
-    cont = 'n';
-    do{
-      if(cont!='n') cout << "Wrong input. Answer with y or n." << endl;
-      cout << "Another fluid container (y/n): ";
-      cin >> cont;
-      if(cont=='n') continueFill = false;
-    }while(cont!='y' && cont!='n');
-
-    if(!firstfgeom && cont == 'n'){
-      delete [] fposa;
-      delete [] fnorma;
-      delete [] fep;
+    stringstream fillSectionTest;
+    fillSectionTest << "fill_" << (nFill+1);
+    if (config.Get(fillSectionTest.str(), "option", "UNKNOWN") == "UNKNOWN") {
+      continueFill = false;
+      if (!firstfgeom) {
+        delete [] fposa;
+        delete [] fnorma;
+        delete [] fep;
+      }
     }
+    nFill++;
   }
   CUDA_SAFE_CALL( cudaMemcpy((void *) fpos, (void *) fpos_d, maxf*sizeof(unsigned int), cudaMemcpyDeviceToHost) );
   cout << "\nCreation of " << nfluid << " fluid particles completed. [OK]" << endl;
@@ -1234,16 +1219,12 @@ int crixus_main(int argc, char** argv){
 
   //Output of particles
   int err = 0;
-  cout << "Choose output option:" << endl;
-  cout << " 1 ... VTU" << endl;
-  cout << " 2 ... H5SPH" << endl;
-  cout << "Input: ";
-  opt = 0;
-  cin >> opt;
-  while(opt<1 || opt>2){
-    cout << "Wrong input try again: ";
-    cin >> opt;
-  }
+  string outfformat = config.Get("output", "format", "vtu");
+  if (outfformat == "h5sph")
+    opt = 2;
+  else
+    opt = 1;
+  cout << "Output format: " << outfformat << endl;
   if(opt==2){
     string outname = "0.";
     outname += fname.substr(0,fname.length()-3);

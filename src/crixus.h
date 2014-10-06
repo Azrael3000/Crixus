@@ -10,6 +10,7 @@
 #include <string.h>
 #include <cuda.h>
 #include "cuda_local.cuh"
+#include "ini/cpp/INIReader.h"
 
 //definitions
 #define DATASETNAME "Compound"
