@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define PRINT_ALL_FAILURES 0
+
 void main(int argc, char *argv[]){
 
   char *header;
@@ -48,7 +50,8 @@ void main(int argc, char *argv[]){
       if(dist<mind)
         mind = dist;
       if(dist>dr-eps){
-        printf("\tFailed: %d, %d, %f, %f\n", i, j, dist, dr-eps);
+		if (failed == 0 || PRINT_ALL_FAILURES)
+	      printf("\tFailed: %d, %d, %f, %f\n", i, j, dist, dr-eps);
         failed++;
       }
     }
