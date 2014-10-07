@@ -860,8 +860,9 @@ int crixus_main(int argc, char** argv){
                 v20.a[i] = pos[idum[2]][i] - pos[idum[0]][i];
               }
               uf4 tnorm = cross(v10, v20);
+              tnorm.a[3] = length3(tnorm);
               for(int i=0; i<3; i++)
-                ddum[i] = tnorm.a[i];
+                ddum[i] = tnorm.a[i]/tnorm.a[3];
             }
             norm.push_back(ddum);
             epv.push_back(idum);
@@ -982,8 +983,8 @@ int crixus_main(int argc, char** argv){
           if(lenNorm < eps){
             uf4 v10, v20;
             for(int i=0; i<3; i++){
-              v10.a[i] = pos[idum[1]][i] - pos[idum[0]][i];
-              v20.a[i] = pos[idum[2]][i] - pos[idum[0]][i];
+              v10.a[i] = pos[idum[1]-fnvert][i] - pos[idum[0]-fnvert][i];
+              v20.a[i] = pos[idum[2]-fnvert][i] - pos[idum[0]-fnvert][i];
             }
             uf4 tnorm = cross(v10, v20);
             for(int i=0; i<3; i++)
