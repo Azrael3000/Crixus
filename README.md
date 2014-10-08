@@ -54,88 +54,130 @@ Once the algorithms are set up, compute the mesh (Mesh->Compute) and export the 
 ------------------
 The syntax for launching Crixus is
 ```
-$(CRIXUS\_BUILD_PATH)/bin/Release/Crixus path/to/file.stl DeltaR
+$(CRIXUS\_BUILD_PATH)/bin/Release/Crixus path/to/file.ini
 ```
-where _DeltaR_ is the particle size. An example would be
+An example would be
 ```
-$(CRIXUS\_BUILD_PATH)/bin/Release/Crixus spheric2.stl 0.018333
+$(CRIXUS\_BUILD_PATH)/bin/Release/Crixus spheric2.ini
 ```
-During the run several options are presented to the user. In the following the [second SPHERIC validation test](https://wiki.manchester.ac.uk/spheric/index.php/Test2) will be used as an example. The _spheric2.stl"_ file can be found in the _resources_ folder that is distributed as part of Crixus.
+The file.ini is an [ini file](https://en.wikipedia.org/wiki/INI_file) which has the structure
+```
+[section]
+option1=value1
+option2=value2
+; I am a comment
+```
+In the following the different sections that can be used will be presented. All options will be listed with there variable type and an additional comment if they are optional, including their default value.
 
+The main section is **mesh**. Which has the following options
+
+1. _stlfile_ (string)
+2. _dr_ (float)
+3. *swap\_normals* (bool, optional=false)
+
+where _stlfile_ is the path to the main stl file, _dr_ is the particle size and *swap\_normals* is an optional flag that allows the swapping of the normals of the domain, which has a default value of _false_.
+
+In the following the [second SPHERIC validation test](https://wiki.manchester.ac.uk/spheric/index.php/Test2) will be used as an example. The _spheric2.stl_ and _spheric2.ini_ file can be found in the _resources_ folder that is distributed as part of Crixus. The **mesh** section in this case looks as follows
+```
+[mesh]
+stlfile=spheric2.stl
+dr=0.018333
+swap_normals=true
+```
 After reading the binary STL file the Crixus determines the orientation of the normals and presents the following output
 ```
         Normals information:
         Positive (n.(0,0,1)) minimum z: 1e+10 (0)
         Negative (n.(0,0,1)) minimum z: 0 (-1)
 
-Swap normals (y/n):
 ```
-The second line shows at which z level a triangle (segment) was found that has a positive dot product with the vector _(0,0,1)_. In this example it can be seen that the value is _1e+10_ which indicates that no such triangle was found. On the other hand a triangle with a negative dot product with the _(0,0,1)_ vector was found at _z = 0_. As this is identical with the bottom of the tank this indicates that the normals need to be swapped which can be done by entering _y_.
+The second line shows at which z level a triangle (segment) was found that has a positive dot product with the vector _(0,0,1)_. In this example it can be seen that the value is _1e+10_ which indicates that no such triangle was found. On the other hand a triangle with a negative dot product with the _(0,0,1)_ vector was found at _z = 0_. As this is identical with the bottom of the tank this indicates that the normals need to be swapped which was indicated by the *swap_normals=true* in the **mesh** section of the ini file.
 
-Next, is the treatment of periodicity where the following output is presented to the user
-```
-X-periodicity (y/n): n
-Y-periodicity (y/n): n
-Z-periodicity (y/n): n
-```
-As in this test case no periodicity is required all three inputs have been answered with _n_. Note that when using periodicity it is the task of the user to ensure that the triangle corners (vertices) on either side of the domain are exactly opposite. This is due to the fact that the vertices at the max side of the domain are removed and the segments on that side are linked to the vertices on the min side.
+Next, is the treatment of periodicity where the user can specify all three space directions in the **periodicity** section of the ini file. The options are
+
+1. x (bool, optional=false)
+2. y (bool, optional=false)
+3. z (bool, optional=false)
+
+As in the spheric2 test case no periodicity is required the entire **periodicity** section is missing in the ini file. Note that when using periodicity it is the task of the user to ensure that the triangle corners (vertices) on either side of the domain are exactly opposite. This is due to the fact that the vertices at the max side of the domain are removed and the segments on that side are linked to the vertices on the min side.
 
 After the periodicity is treated, Crixus calculates the volume of the vertex particles. Next, Crixus checks whether grids for in/outflow are available. Note that this feature is disabled in the current version of Crixus as it needs further testing before it will be enabled.
 
 The next file Crixus is looking for is *spheric2\_coarse.stl* which is a coarse version of the original STL file. This is used only in the filling algorithm and can sometimes yield improved performance in very simple geometries. Due to recent optimizations this option might be removed in future versions of the code.
 
-More important is the file *spheric2\_fshape.stl* which again is a required to be a binary STL file. This file is optional but limits the options for filling algorithms as detailed further below.
+More important is the file *spheric2\_fshape.stl* which again is a required to be a binary STL file. This file is optional.
 
-Before the main filling starts Crixus asks the user whether he would like to limit the domain the filling algorithm works on.
-```
-Specify fluid container (y/n):
-```
-This can be particularly useful in large domains where only a small fraction will be filled with water. The main effect is that it significantly reduces the time the filling algorithm requires, which is the most computationally expensive part of Crixus. In this example we choose a slightly too large box using the following input
-```
-Specify fluid container (y/n): y
-Specify fluid container:
-Min coordinates (x,y,z): 0.0 0.0 0.0
-Max coordinates (x,y,z): 1.5 1.0 0.6
-```
+Before the main filling starts Crixus allows the user to specify whether he would like to limit the domain the filling algorithm works on. The **fluid\_container** section defines the dimensions of the container using the following options
 
-As in our case a *spheric2\_fshape.stl* file was present two options for filling are presented
-```
-Choose option:
- 1 ... Fluid in a box
- 2 ... Fluid based on geometry
-Input:
-```
-To illustrate both options we choose a slightly complicated approach and fill a small box with fluid first
-```
-Input: 1
-Enter dimensions of fluid box:
-xmin xmax: 0.2 0.4
-ymin ymax: 0.2 0.4
-zmin zmax: 0.2 0.4
-Another fluid container (y/n):
-```
-As can be seen a fluid box has been specified that is defined by the two points *(0.2, 0.2, 0.2)* and *(0.4, 0.4, 0.4)*. The input at the end allows to choose another filling operation. As more filling is required in this case we answer with *y*. Which again lets us choose the filling algorithm. This time we choose algorithm *2* which is *Fluid based on geometry*. This algorithm then asks for a seed point as well as for a desired distance between the fluid and the wall as can be seen below
-```
-Input: 2
-Please specify a seed point.
-x, y, z = 0.5 0.5 0.5
-Specify distance from fluid particles to vertex particles and segments: 0.018333
-```
-The seed point, from which the filling algorithm starts populating the fluid is given by *(0.5, 0.5, 0.5)* and the distance to the wall is chosen identical to the initial *DeltaR*. The filling algorithm fills all possible points that lie on a regular Cartesian grid with gridsize *DeltaR* unless it either encounters a wall or a segment of the *spheric2_fshape* file. The latter thus specifies the initial free-surface of the fluid. If this file is not present the user cannot choose this algorithm and only filling of a fluid in a box is possible.
+1. use (bool, optional=false)
+2. xmin (float)
+3. ymin (float)
+4. zmin (float)
+5. xmax (float)
+6. ymax (float)
+7. zmax (float)
 
-The filling is then ended by answering *n* to the question of whether or not we would like to add another fluid container. The data for output is then prepared and the user can choose between output to VTU and H5SPH files.
+where the _use_ option specifies whether the fluid container is activated or not and the {x,y,z}{min,max} determine the extend of the container. This can be particularly useful in large domains where only a small fraction will be filled with water. The main effect is that it significantly reduces the time the filling algorithm requires, which is the most computationally expensive part of Crixus. In this example we choose a slightly too large box using the following input
 ```
-Choose output option:
- 1 ... VTU
- 2 ... H5SPH
-Input:
+[fluid_container]
+use=true
+xmin=0.0
+ymin=0.0
+zmin=0.0
+xmax=1.5
+ymax=1.0
+zmax=0.6
 ```
-After the output is written to the respective file, e.g.
+Next comes the main filling of the geometry. The algorithms can be called as many times as required and each call to the algorithm must be placed in a separate section. They are named *fill\_0*, *fill\_1*, *fill\_2*, etc. and all numbers starting from 0 need to be present. The first option in each *fill\_n* is titled _option_ and has a default value of "box", the only other option currently is "geometry". Depending on this first option the other options are as follows:
+
+1. option=box
+2. xmin (float)
+3. ymin (float)
+4. zmin (float)
+5. xmax (float)
+6. ymax (float)
+7. zmax (float)
+
+Where {x,y,z}{min,max} indicate the size of the box of fluid that will be filled. To illustrate both options we choose a slightly complicated approach and fill a small box with fluid first
 ```
-Input: 1
-Writing output to file spheric2.vtu ... [OK]
+[fill_0]
+option=box
+xmin=0.2
+ymin=0.2
+zmin=0.2
+xmax=0.4
+ymax=0.4
+zmax=0.4
 ```
-Crixus has finished.
+As can be seen a fluid box has been specified that is defined by the two points *(0.2, 0.2, 0.2)* and *(0.4, 0.4, 0.4)*. In order to call the filling algorithm a second time a **fill_1** section is also specified using the *geometry* option. This algorithm takes a seed point as input as well as a desired distance between the fluid and the wall resulting in the following options
+
+1. option=geometry
+2. xseed (float)
+3. yseed (float)
+4. zseed (float)
+5. dr\_wall (float, optional=dr)
+
+In the Spheric2 test case that is used an example this results in the following output
+```
+[fill_1]
+option=geometry
+xseed=0.5
+yseed=0.5
+zseed=0.5
+dr_wall=0.018333
+```
+The seed point, from which the filling algorithm starts populating the fluid is given by *(0.5, 0.5, 0.5)* and the distance to the wall is chosen identical to the initial *dr*. Note that due to the default value of *dr_wall* being equal to *dr* we would not have had to specify this option. The filling algorithm fills all possible points that lie on a regular Cartesian grid with gridsize *dr* unless it either encounters a wall or a segment of the *spheric2_fshape* file. The latter thus specifies the initial free-surface of the fluid.
+
+The filling is then completed as no **fill_2** section is present. The data for output is then prepared and the user can choose between output to VTU and H5SPH files. This is done by specifying a **output** section which has the option
+
+1. format (string, optional=vtu)
+
+where the format option can currently be either *vtu* or *h5sph*. If you are using GPUSPH then you need to choose h5sph as it is the only currently supported format.
+```
+[output]
+format=h5sph
+```
+After the output is written to the respective file and after that Crixus has finished.
 
 4.) Frequently encountered issues
 ---------------------------------
