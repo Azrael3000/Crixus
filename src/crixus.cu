@@ -443,7 +443,7 @@ int crixus_main(int argc, char** argv){
   string cfname;
   int flen = strlen(argv[1]);
   for(int sbi=1; sbi<10; sbi++){
-    cfname = fname.substr(0,fname.length()-4);
+    cfname = configfname.substr(0,configfname.length()-4);
     cfname += "_sbgrid_";
     stringstream ss;
     ss << sbi;
@@ -616,7 +616,7 @@ int crixus_main(int argc, char** argv){
   cout << "Checking wether coarse grid is available ...";
   fflush(stdout);
   bool bcoarse = false;
-  cfname = fname.substr(0,fname.length()-4);
+  cfname = configfname.substr(0,configfname.length()-4);
   cfname += "_coarse.stl";
   stl_file.open(cfname.c_str(), ios::in);
   if(!stl_file.is_open()){
@@ -650,7 +650,7 @@ int crixus_main(int argc, char** argv){
     }
   }
 
-  cfname = fname.substr(0,fname.length()-4);
+  cfname = configfname.substr(0,configfname.length()-4);
   cfname += "_fshape.stl";
   cfname = config.Get("mesh", "fshape", cfname);
 
@@ -1244,16 +1244,15 @@ int crixus_main(int argc, char** argv){
   else
     opt = 1;
   cout << "Output format: " << outfformat << endl;
+  string outname = configfname.substr(0,configfname.length()-4);
+  outname = config.Get("output", "name", outname);
   if(opt==2){
-    string outname = "0.";
-    outname += fname.substr(0,fname.length()-3);
-    outname += "h5sph";
+    outname = "0." + outname + ".h5sph";
     cout << "Writing output to file " << outname << " ...";
     fflush(stdout);
     err = hdf5_output( buf, nelem, outname.c_str());
   }
   else if(opt==1){
-    string outname = fname.substr(0,fname.length()-3);
     outname += "vtu";
     cout << "Writing output to file " << outname << " ...";
     fflush(stdout);
