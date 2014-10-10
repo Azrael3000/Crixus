@@ -443,13 +443,16 @@ int crixus_main(int argc, char** argv){
   string cfname;
   int flen = strlen(argv[1]);
   for(int sbi=1; sbi<10; sbi++){
-    cout << "\nChecking whether special boundary grid #" << sbi << " is available ...";
     cfname = fname.substr(0,fname.length()-4);
     cfname += "_sbgrid_";
     stringstream ss;
     ss << sbi;
     cfname += ss.str();
     cfname += ".stl";
+    string option = "mesh" + ss.str();
+    cfname = config.Get("special_boundary_grids", option, cfname);
+
+    cout << "\nChecking whether special boundary grid #" << sbi << " (" << cfname << ") is available ...";
     stl_file.open(cfname.c_str(), ios::in);
     if(!stl_file.is_open()){
       cout << " [NO]" << endl;
@@ -647,10 +650,12 @@ int crixus_main(int argc, char** argv){
     }
   }
 
-  cout << "Checking whether fluid geometry is available ...";
-  fflush(stdout);
   cfname = fname.substr(0,fname.length()-4);
   cfname += "_fshape.stl";
+  cfname = config.Get("mesh", "fshape", cfname);
+
+  cout << "Checking whether fluid geometry (" << cfname << ") is available ...";
+  fflush(stdout);
 
   ifstream fstl_file (cfname.c_str(), ios::in);
   if(!fstl_file.is_open()){
