@@ -442,7 +442,9 @@ int crixus_main(int argc, char** argv){
   bool *needsUpdate_d;
   string cfname;
   int flen = strlen(argv[1]);
-  for(int sbi=1; sbi<10; sbi++){
+  int sbi = 0;
+  while(true){
+    sbi++;
     cfname = configfname.substr(0,configfname.length()-4);
     cfname += "_sbgrid_";
     stringstream ss;
