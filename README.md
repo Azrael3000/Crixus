@@ -28,9 +28,11 @@ Salome offers several options to create a geometry:
 
 1. Create the geometry by hand in Salome
 2. Import a geometry
-3. Import an STL file and convert it to a geometry
+3. Import an STL file and convert it to a geometry (Salome 7.2 and older)
 
-The last one needs to be described in greater detail. Open a new study in Salome (File->New) and switch to the mesh module. Import an STL file (_File->Import->STL File_) and rename it to "Mesh\_import". After that load the script (_File->Load Script_) which is located in _$(CRIXUS\_PATH)/resources/_ and is called "convert\_stl\_to\_geometry.py". Next switch to the geometry module and you should be able to see a geometry called "stl\_geometry".
+With the release of Salome 7.4 the last option is no longer available. The user can now import a STL file directly in the geometry module and use this as a basis for meshing. Useres of Salome 7.2 and less should read the following paragraph that details how STL files can be imported in these older versions.
+
+Open a new study in Salome (File->New) and switch to the mesh module. Import an STL file (_File->Import->STL File_) and rename it to "Mesh\_import". After that load the script (_File->Load Script_) which is located in _$(CRIXUS\_PATH)/resources/_ and is called "convert\_stl\_to\_geometry.py". Next switch to the geometry module and you should be able to see a geometry called "stl\_geometry".
 
 So by now you should have a geometry in Salome and in the next step we will create a triangle mesh. To start with that switch to the mesh module in Salome. Now create a new mesh (_Mesh->Create Mesh_). As geometry choose the geometry from the list on the left (in the above it was "stl\_geometry"). There is no need for a 3D algorithm so switch to the 2D tab. Now several options are available and it is possibly a good idea to try several of them and compare the results against each other. The options are:
 
