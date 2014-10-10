@@ -1255,7 +1255,7 @@ int crixus_main(int argc, char** argv){
     err = hdf5_output( buf, nelem, outname.c_str());
   }
   else if(opt==1){
-    outname += "vtu";
+    outname += ".vtu";
     cout << "Writing output to file " << outname << " ...";
     fflush(stdout);
     err = vtk_output( buf, nelem, outname.c_str());
