@@ -58,11 +58,11 @@ The syntax for launching Crixus is
 ```
 $(CRIXUS\_BUILD_PATH)/bin/Release/Crixus path/to/file.ini
 ```
-An example would be
+Where _file_ is the name of the problem which will be referred to as $problem in the following. An example would be
 ```
 $(CRIXUS\_BUILD_PATH)/bin/Release/Crixus spheric2.ini
 ```
-The file.ini is an [ini file](https://en.wikipedia.org/wiki/INI_file) which has the structure
+where _spheric2_ is the problem name. The file.ini is an [ini file](https://en.wikipedia.org/wiki/INI_file) which has the structure
 ```
 [section]
 option1=value1
@@ -76,8 +76,9 @@ The main section is **mesh**. Which has the following options
 1. _stlfile_ (string)
 2. _dr_ (float)
 3. *swap\_normals* (bool, optional=false)
+4. _fshape_ (string, optional $problem\_fshape.stl)
 
-where _stlfile_ is the path to the main stl file, _dr_ is the particle size and *swap\_normals* is an optional flag that allows the swapping of the normals of the domain, which has a default value of _false_.
+where _stlfile_ is the path to the main stl file, _dr_ is the particle size and *swap\_normals* is an optional flag that allows the swapping of the normals of the domain, which has a default value of _false_. The _fshape_ option is the name of a STL mesh file that is used later on for filling.
 
 In the following the [second SPHERIC validation test](https://wiki.manchester.ac.uk/spheric/index.php/Test2) will be used as an example. The _spheric2.stl_ and _spheric2.ini_ file can be found in the _resources_ folder that is distributed as part of Crixus. The **mesh** section in this case looks as follows
 ```
@@ -85,8 +86,9 @@ In the following the [second SPHERIC validation test](https://wiki.manchester.ac
 stlfile=spheric2.stl
 dr=0.018333
 swap_normals=true
+fshape=spheric2_fshape.stl
 ```
-After reading the binary STL file the Crixus determines the orientation of the normals and presents the following output
+Note that the _fshape_ option is redundant in this case as the default value ($problem\_fshape) is identical to the given value. After reading the binary STL file the Crixus determines the orientation of the normals and presents the following output
 ```
         Normals information:
         Positive (n.(0,0,1)) minimum z: 1e+10 (0)
@@ -103,11 +105,20 @@ Next, is the treatment of periodicity where the user can specify all three space
 
 As in the spheric2 test case no periodicity is required the entire **periodicity** section is missing in the ini file. Note that when using periodicity it is the task of the user to ensure that the triangle corners (vertices) on either side of the domain are exactly opposite. This is due to the fact that the vertices at the max side of the domain are removed and the segments on that side are linked to the vertices on the min side.
 
-After the periodicity is treated, Crixus calculates the volume of the vertex particles. Next, Crixus checks whether grids for in/outflow are available. Note that this feature is disabled in the current version of Crixus as it needs further testing before it will be enabled.
+After the periodicity is treated, Crixus calculates the volume of the vertex particles. Next, Crixus checks whether grids for in/outflow are available. An infinite number of special boundaries can be specified and all Crixus does is set a specific value at the output "KENT" array. In GPUSPH for example this can then be used to define what type of special boundary this can be. Potential options are floating, moving or open boundaries.
+
+There is a dedicated section for these _special boundary grids_ which is suitably calles *special_boundary_grids*. The options are
+
+1. mesh1 (string, optional=$problem\_sbgrid_1.stl)
+2. mesh2 (string, optional=$problem\_sbgrid_2.stl)
+3. mesh3 (string, optional=$problem\_sbgrid_3.stl)
+4. etc.
+
+The search for special boundaries stops as soon as the respective file cannot be found. Note that in the present spheric2 test case no special boundary grid is present.
 
 The next file Crixus is looking for is *spheric2\_coarse.stl* which is a coarse version of the original STL file. This is used only in the filling algorithm and can sometimes yield improved performance in very simple geometries. Due to recent optimizations this option might be removed in future versions of the code.
 
-More important is the file *spheric2\_fshape.stl* which again is a required to be a binary STL file. This file is optional.
+More important is the fluid shape file which was either set to a specific name in the **mesh** section using option _fshape_. It is required to be a binary STL file. This file is optional but can be used to specify the free-surface of the case.
 
 Before the main filling starts Crixus allows the user to specify whether he would like to limit the domain the filling algorithm works on. The **fluid\_container** section defines the dimensions of the container using the following options
 
@@ -168,18 +179,20 @@ yseed=0.5
 zseed=0.5
 dr_wall=0.018333
 ```
-The seed point, from which the filling algorithm starts populating the fluid is given by *(0.5, 0.5, 0.5)* and the distance to the wall is chosen identical to the initial *dr*. Note that due to the default value of *dr_wall* being equal to *dr* we would not have had to specify this option. The filling algorithm fills all possible points that lie on a regular Cartesian grid with gridsize *dr* unless it either encounters a wall or a segment of the *spheric2_fshape* file. The latter thus specifies the initial free-surface of the fluid.
+The seed point, from which the filling algorithm starts populating the fluid is given by *(0.5, 0.5, 0.5)* and the distance to the wall is chosen identical to the initial *dr*. Note that due to the default value of *dr_wall* being equal to *dr* we would not have had to specify this option. The filling algorithm fills all possible points that lie on a regular Cartesian grid with gridsize *dr* unless it either encounters a wall or a segment of the *spheric2_fshape.stl* file. The latter thus specifies the initial free-surface of the fluid.
 
-The filling is then completed as no **fill_2** section is present. The data for output is then prepared and the user can choose between output to VTU and H5SPH files. This is done by specifying a **output** section which has the option
+The filling is then completed as no **fill_2** section is present. The data for output is then prepared and the user can choose between output to VTU and H5SPH files. This is done by specifying a **output** section which has the options
 
 1. format (string, optional=vtu)
+2. name (string, optional=$problem)
 
-where the format option can currently be either *vtu* or *h5sph*. If you are using GPUSPH then you need to choose h5sph as it is the only currently supported format.
+where the format option can currently be either *vtu* or *h5sph*. The name can be an optional name for the output file, if it is not set the standard $problem name will be used. If you are using GPUSPH then you need to choose h5sph as it is the only currently supported format.
 ```
 [output]
 format=h5sph
+name=spheric2_ready_to_run
 ```
-After the output is written to the respective file and after that Crixus has finished.
+After the output is written to the file (in the example case: *0.spheric2\_ready\_to\_run.h5sph*) and after that Crixus has finished.
 
 4.) Frequently encountered issues
 ---------------------------------
