@@ -306,6 +306,15 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
           break;
       }
     }
+    for(uint k=0; k<tris; k++) {
+      // when we are at the border of the domain the edge will have only one segment
+      // then we assume that the normal of this edge is equal to the normal of that segment
+      if((int)(edgen[k].a[3]+eps)==1){
+        uf4 edge;
+        edge = pos[tri[k][0]] - pos[tri[k][1]];
+        edgen[k] = cross(edgen[k], edge);
+      }
+    }
 
 #ifdef bdebug
       if(i==bdebug){
@@ -479,7 +488,9 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
         //edges
         sp = 0.;
         for(unsigned int n=0; n<3; n++){
+          // tvec = grid point with respect to vertex on edge
           tvec[0][n] = gp[n] - cvec[j][5][n];
+          // scalar product between normal of edge plane and relative grid point position
           sp += tvec[0][n]*edgen[j].a[n];
         }
         if(sp>0.+eps){
