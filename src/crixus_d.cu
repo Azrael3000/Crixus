@@ -774,32 +774,28 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
 
       // projection inside the triangle
       float dist = 0.0;
-      if(orientations.a[0] >= 0.0 && orientations.a[1] >= 0.0 && orientations.a[2] >= 0.0){
+      if(orientations.a[0] > -eps && orientations.a[1] > -eps && orientations.a[2] > -eps){
         // distance is equal to the distance between the projection and s
         dist = sqlength3(projpos - (s - segpos));
       }
       // two orientations are negative
-      else if(orientations.a[1]*orientations.a[2]*orientations.a[3] > 0.0){
-        // distance is equal to the distance between s and the closest vertex
-        uf4 close;
-        if(orientations.a[0] > 0.0)
-          close = v[2];
-        else if(orientations.a[1] > 0.0)
-          close = v[0];
-        else
-          close = v[1];
-        dist = sqlength3(s - close);
-      }
+      // distance is equal to the distance between s and the closest vertex
+      else if(orientations.a[0] < eps && orientations.a[1] < eps)
+        dist = sqlength3(s - v[2]);
+      else if(orientations.a[1] < eps && orientations.a[2] < eps)
+        dist = sqlength3(s - v[0]);
+      else if(orientations.a[2] < eps && orientations.a[0] < eps)
+        dist = sqlength3(s - v[1]);
       // only one orientations is negative (all three is not possible)
       else{
         // vertices associated with the edge closest to s
         uf4 x1;
         uf4 x2;
-        if(orientations.a[0] < 0.0){
+        if(orientations.a[0] < eps){
           x1 = v[0];
           x2 = v[1];
         }
-        else if(orientations.a[1] < 0.0){
+        else if(orientations.a[1] < eps){
           x1 = v[1];
           x2 = v[2];
         }
