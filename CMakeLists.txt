@@ -17,9 +17,6 @@ cmake_minimum_required(VERSION 2.8)
 find_package(CUDA REQUIRED)
 find_package(HDF5 REQUIRED)
 
-# cuda sdk path
-set(CUDA_SDK_ROOT_DIR "/home/kassiotis/NVIDIA_GPU_Computing_SDK")
-
 # set compilation options
 set(CUDA_NVCC_FLAGS "-arch=sm_20")
 
