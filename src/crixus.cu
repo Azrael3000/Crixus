@@ -1110,13 +1110,15 @@ int crixus_main(int argc, char** argv){
   //prepare output structure for particles
   cout << "Creating and initializing of output buffer of particles ...";
   fflush(stdout);
-  OutBuf *buf;
+  OutBuf *buf, *beBuf;
 #ifndef bdebug
   unsigned int nelem = nvert+nbe+nfluid;
 #else
   unsigned int nelem = nvert+nbe+nfluid+debugs;
 #endif
   buf = new OutBuf[nelem];
+  // buffer for boundary elementss
+  beBuf = new OutBuf[nbe];
   int k=0;
   unsigned int m,n,imin[3];
   float fluid_vol = pow(dr,3);
@@ -1186,32 +1188,49 @@ int crixus_main(int argc, char** argv){
     buf[k].ep3 = 0;
     k++;
   }
+  const unsigned int nCur = k;
   //boundary segments
+  //these are preliminarily written into beBuf because we might need to rearrange them
+  //count the numbers of special boundary elements
+  unsigned int *nsbe, *isbe;
+  nsbe = new unsigned int[sbi];
+  isbe = new unsigned int[sbi];
+  for(unsigned int i=0; i<sbi; i++)
+    nsbe[i] = 0;
   for(unsigned int i=nvert; i<nvert+nbe; i++){
-    buf[k].x = posa[i].a[0];
-    buf[k].y = posa[i].a[1];
-    buf[k].z = posa[i].a[2];
-    buf[k].nx = norma[i-nvert].a[0];
-    buf[k].ny = norma[i-nvert].a[1];
-    buf[k].nz = norma[i-nvert].a[2];
-    buf[k].vol = 0.;
-    buf[k].surf = surf[i-nvert];
-    buf[k].kpar = 3;
-    /* in/outflow is for version 0.6
-    if(binflow || boutflow)
-      buf[k].kpar += inout[i];
-    */
-    buf[k].kfluid = 1;
-    if(sbpresent)
-      buf[k].kent = sbid[i];
+    beBuf[k-nCur].x = posa[i].a[0];
+    beBuf[k-nCur].y = posa[i].a[1];
+    beBuf[k-nCur].z = posa[i].a[2];
+    beBuf[k-nCur].nx = norma[i-nvert].a[0];
+    beBuf[k-nCur].ny = norma[i-nvert].a[1];
+    beBuf[k-nCur].nz = norma[i-nvert].a[2];
+    beBuf[k-nCur].vol = 0.;
+    beBuf[k-nCur].surf = surf[i-nvert];
+    beBuf[k-nCur].kpar = 3;
+    beBuf[k-nCur].kfluid = 1;
+    if(sbpresent){
+      beBuf[k-nCur].kent = sbid[i];
+      nsbe[sbid[i]]++;
+    }
     else
-      buf[k].kent = 0;
-    buf[k].kparmob = 0;
-    buf[k].iref = k;
-    buf[k].ep1 = nfluid+ep[i-nvert].a[0] - nvshift[ep[i-nvert].a[0]];
-    buf[k].ep2 = nfluid+ep[i-nvert].a[1] - nvshift[ep[i-nvert].a[1]];
-    buf[k].ep3 = nfluid+ep[i-nvert].a[2] - nvshift[ep[i-nvert].a[2]];
+      beBuf[k-nCur].kent = 0;
+    beBuf[k-nCur].kparmob = 0;
+    beBuf[k-nCur].iref = k;
+    beBuf[k-nCur].ep1 = nfluid+ep[i-nvert].a[0] - nvshift[ep[i-nvert].a[0]];
+    beBuf[k-nCur].ep2 = nfluid+ep[i-nvert].a[1] - nvshift[ep[i-nvert].a[1]];
+    beBuf[k-nCur].ep3 = nfluid+ep[i-nvert].a[2] - nvshift[ep[i-nvert].a[2]];
     k++;
+  }
+  // isbe contains the current index of each sbi
+  isbe[0] = 0;
+  for(unsigned int i=1; i<sbi; i++)
+    isbe[i] = nsbe[i-1] + isbe[i-1];
+  // copy beBuf into buf while reordering if required
+  for(unsigned int i=0; i<nbe; i++){
+    unsigned int l = nCur + isbe[beBuf[i].kent];
+    buf[l] = beBuf[i];
+    buf[l].iref = l;
+    isbe[beBuf[i].kent]++;
   }
   delete [] nvshift;
 #ifdef bdebug
