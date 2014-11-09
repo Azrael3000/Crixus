@@ -50,8 +50,8 @@ void main(int argc, char *argv[]){
       if(dist<mind)
         mind = dist;
       if(dist>dr-eps){
-		if (failed == 0 || PRINT_ALL_FAILURES)
-	      printf("\tFailed: %d, %d, %f, %f\n", i, j, dist, dr-eps);
+        if (failed == 0 || PRINT_ALL_FAILURES)
+          printf("\tFailed: i: %d, j: %d, dist: %f, dr-eps: %f pos: (%e,%e,%e)\n", i, j, dist, dr-eps, s[0], s[1], s[2]);
         failed++;
       }
     }
