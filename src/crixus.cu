@@ -615,43 +615,6 @@ int crixus_main(int argc, char** argv){
   //setting up fluid particles
   cout << "\nDefining fluid particles ..." << endl;
 
-  cout << "Checking wether coarse grid is available ...";
-  fflush(stdout);
-  bool bcoarse = false;
-  cfname = configfname.substr(0,configfname.length()-4);
-  cfname += "_coarse.stl";
-  stl_file.open(cfname.c_str(), ios::in);
-  if(!stl_file.is_open()){
-    bcoarse = false;
-    cout << " [NO]" << endl;
-  }
-  else{
-    bcoarse = true;
-    cout << " [YES]" << endl;
-    cout << "Checking whether coarse geometry stl file is binary ...";
-    fflush(stdout);
-    bool issolid = true;
-    char header[6] = "solid";
-    for (int i=0; i<5; i++){
-      char dum;
-      stl_file.read((char *)&dum, sizeof(char));
-      if(dum!=header[i]){
-        issolid = false;
-        break;
-      }
-    }
-    stl_file.close();
-    if(issolid){
-      cout << " [NO]" << endl;
-      bcoarse = false;
-    }
-    else{
-      cout << " [YES]" << endl;
-      // reopen file in binary mode
-      stl_file.open(cfname.c_str(), ios::in | ios::binary);
-    }
-  }
-
   cfname = configfname.substr(0,configfname.length()-4);
   cfname += "_fshape.stl";
   cfname = config.Get("mesh", "fshape", cfname);
@@ -803,134 +766,31 @@ int crixus_main(int argc, char** argv){
         cudaFree(pos_d   );
         cudaFree(ep_d    );
 
-        // if coarse grid for geometry is available read it
-        if(bcoarse){
-          // read header
-          for (int i=0; i<20; i++){
-            float dum;
-            stl_file.read((char *)&dum, sizeof(float));
-          }
-          // get number of facets
-          stl_file.read((char *)&num_of_facets, sizeof(int));
-          cout << "Reading " << num_of_facets << " facets of coarse geometry ...";
-          fflush(stdout);
-
-          // define variables
-          pos.clear();
-          norm.clear();
-          epv.clear();
-          for(int i=0;i<3;i++){
-            ddum[i] = 0.;
-            idum[i] = 0;
-          }
-
-          // read data
-          through = 0;
-          while ((through < num_of_facets) & (!stl_file.eof()))
-          {
-            for (int i=0; i<12; i++)
-            {
-              stl_file.read((char *)&m_v_floats[i], sizeof(float));
-            }
-            for(int j=0;j<3;j++){
-              for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
-              int k = 0;
-              bool found = false;
-              for(it = pos.begin(); it < pos.end(); it++){
-                float diff = 0;
-                for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
-                diff = sqrt(diff);
-                if(diff < 1e-5*dr){
-                  idum[j] = k;
-                  found = true;
-                  break;
-                }
-                k++;
-              }
-              if(!found){
-                pos.push_back(ddum);
-                idum[j] = k;
-              }
-            }
-            // get normal of triangle
-            float lenNorm = 0.0;
-            for(int i=0;i<3;i++){
-              ddum[i] = (float)m_v_floats[i];
-              lenNorm += ddum[i]*ddum[i];
-            }
-            // this is for blender if stl files are saved without normals
-            // here we don't care for the orientation so let's just compute it
-            if(lenNorm < eps){
-              uf4 v10, v20;
-              for(int i=0; i<3; i++){
-                v10.a[i] = pos[idum[1]][i] - pos[idum[0]][i];
-                v20.a[i] = pos[idum[2]][i] - pos[idum[0]][i];
-              }
-              uf4 tnorm = cross(v10, v20);
-              tnorm.a[3] = length3(tnorm);
-              for(int i=0; i<3; i++)
-                ddum[i] = tnorm.a[i]/tnorm.a[3];
-            }
-            norm.push_back(ddum);
-            epv.push_back(idum);
-            stl_file.read((char *)&attribute, sizeof(short));
-            through++;
-          }
-          stl_file.close();
-          if(num_of_facets != norm.size()){
-            cout << " [FAILED]" << endl;
-            return READ_ERROR;
-          }
-          fnvert = pos.size();
-          fnbe   = norm.size();
-          //create and copy vectors to arrays
-          fnorma = new uf4   [fnbe];
-          fposa  = new uf4   [fnvert];
-          fep    = new ui4   [fnbe];
-          for(unsigned int i=0; i<max(fnvert,fnbe); i++){
-            if(i<fnbe){
-              for(int j=0; j<3; j++){
-                fnorma[i].a[j] = norm[i][j];
-                fep[i].a[j] = epv[i][j];
-              }
-            }
-            if(i<fnvert){
-              for(unsigned int j=0; j<3; j++)
-                fposa[i].a[j] = pos[i][j];
+        // copy stl geometry to f* arrays
+        fnvert = nvert;
+        fnbe = nbe;
+        fep = new ui4 [fnbe];
+        fnorma = new uf4 [fnbe];
+        fposa = new uf4 [fnvert];
+        unsigned int inbe = 0;
+        for(unsigned int i=0; i<max(fnvert,fnbe); i++){
+          if(i<fnbe){
+            // if a fluid container was set then remove all normals and ep of segments that are outside the box + 2dr
+            if(! set ||
+               (fabs(posa[i+nvert].a[0] - (dmax.a[0]+dmin.a[0])/2.0f) < (dmax.a[0]-dmin.a[0])/2.0f + 2.0f*dr &&
+                fabs(posa[i+nvert].a[1] - (dmax.a[1]+dmin.a[1])/2.0f) < (dmax.a[1]-dmin.a[1])/2.0f + 2.0f*dr &&
+                fabs(posa[i+nvert].a[2] - (dmax.a[2]+dmin.a[2])/2.0f) < (dmax.a[2]-dmin.a[2])/2.0f + 2.0f*dr   )){
+              fep[inbe] = ep[i];
+              fnorma[inbe] = norma[i];
+              inbe++;
             }
           }
-          pos.clear();
-          epv.clear();
-          norm.clear();
-          cout << " [OK]" << endl;
+          // all vertices will be copied regardless of their location
+          if(i<fnvert)
+            fposa[i] = posa[i];
         }
-        else{
-          // no coarse geometry available, copy fine one to f* arrays
-          fnvert = nvert;
-          fnbe = nbe;
-          fep = new ui4 [fnbe];
-          fnorma = new uf4 [fnbe];
-          fposa = new uf4 [fnvert];
-          unsigned int inbe = 0;
-          for(unsigned int i=0; i<max(fnvert,fnbe); i++){
-            if(i<fnbe){
-              // if a fluid container was set then remove all normals and ep of segments that are outside the box + 2dr
-              if(! set ||
-                 (fabs(posa[i+nvert].a[0] - (dmax.a[0]+dmin.a[0])/2.0f) < (dmax.a[0]-dmin.a[0])/2.0f + 2.0f*dr &&
-                  fabs(posa[i+nvert].a[1] - (dmax.a[1]+dmin.a[1])/2.0f) < (dmax.a[1]-dmin.a[1])/2.0f + 2.0f*dr &&
-                  fabs(posa[i+nvert].a[2] - (dmax.a[2]+dmin.a[2])/2.0f) < (dmax.a[2]-dmin.a[2])/2.0f + 2.0f*dr   )){
-                fep[inbe] = ep[i];
-                fnorma[inbe] = norma[i];
-                inbe++;
-              }
-            }
-            // all vertices will be copied regardless of their location
-            if(i<fnvert)
-              fposa[i] = posa[i];
-          }
-          if(set)
-            fnbe = inbe;
-        }
+        if(set)
+          fnbe = inbe;
 
         // read fluid geometry
         // read header
@@ -1080,7 +940,7 @@ int crixus_main(int argc, char** argv){
         nfi = 0;
         CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
-        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sInd, lock_f, bcoarse, cnbe, dr_wall, iteration);
+        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sInd, lock_f, cnbe, dr_wall, iteration);
 
         CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
         nfluid += nfi;

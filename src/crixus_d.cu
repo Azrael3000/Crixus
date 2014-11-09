@@ -587,7 +587,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   return;
 }
 
-__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sInd, Lock lock, bool bcoarse, int cnbe, float dr_wall, int iteration)
+__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sInd, Lock lock, int cnbe, float dr_wall, int iteration)
 {
   // this function is responsible for filling a complex geometry with fluid
   const unsigned int bitPerUint = 8*sizeof(unsigned int);
@@ -641,7 +641,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
           // in iteration 1 check direckt line of sight to seed point
           if(iteration==1){
             // note that in the following check we check all triangles, regardless of their distance
-            bool collision = checkCollision(i,j,k,is,js,ks, norm, ep, pos, nbe, dr, dmin, dimg, eps, false, cnbe, dr_wall);
+            bool collision = checkCollision(i,j,k,is,js,ks, norm, ep, pos, nbe, dr, dmin, dimg, eps, cnbe, dr_wall);
             if(!collision){
               fpos[arrayInd] = fpos[arrayInd] | bit;
               nfi_tmp++;
@@ -670,7 +670,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
             // check whether position is filled
             if(fpos[indOff/bitPerUint] & (1<<(indOff%bitPerUint))){
               // check for collision with triangle
-              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, pos, nbe, dr, dmin, dimg, eps, bcoarse, cnbe, dr_wall);
+              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, pos, nbe, dr, dmin, dimg, eps, cnbe, dr_wall);
               if(!collision){
                 fpos[arrayInd] = fpos[arrayInd] | bit;
                 nfi_tmp++;
@@ -709,7 +709,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
   return;
 }
 
-__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, bool bcoarse, int cnbe, float dr_wall){
+__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, int cnbe, float dr_wall){
   // checks whether the line-segment determined by s. and e. intersects any available triangle and whether s is too close to any triangle
   bool collision = false;
   uf4 s, e, n, v[3], dir;
@@ -731,7 +731,7 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
     for(int j=0; j<3; j++)
       v[j] = pos[ep[i].a[j]];
     // if we don't have a coarse grid, the triangle needs to be close enough so that something can happen
-    if(!bcoarse && i<nbe-cnbe){
+    if(i<nbe-cnbe){
       // dist = square distance from one vertex to the midpoint between s and e
       float dist = sqlength3((s+e)/2.0f - v[0]);
       if(dist > sqMaxInflDist)
