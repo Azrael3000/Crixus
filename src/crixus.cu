@@ -451,7 +451,7 @@ int crixus_main(int argc, char** argv){
 
   calc_trisize <<<numBlocks, numThreads>>> (ep_d, trisize, nbe);
 #ifndef bdebug
-  calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, nvert, nbe, dr, eps, per_d);
+  calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, gridn, dmin_d, dmax_d, nvert, nbe, dr, eps, per_d);
 #else
   uf4 *debug, *debug_d;
   int debugs = pow((gres*2+1),3);
@@ -461,7 +461,7 @@ int crixus_main(int argc, char** argv){
   CUDA_SAFE_CALL( cudaMalloc((void **) &debug_d, debugs*sizeof(uf4)) );
   CUDA_SAFE_CALL( cudaMalloc((void **) &debugp_d, 100*sizeof(float)) );
 
-  calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, dmin_d, dmax_d, nvert, nbe, dr, eps, per_d, debug_d, debugp_d);
+  calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, gridn, dmin_d, dmax_d, nvert, nbe, dr, eps, per_d, debug_d, debugp_d);
 
   CUDA_SAFE_CALL( cudaMemcpy((void*) debug, (void*) debug_d, debugs*sizeof(uf4), cudaMemcpyDeviceToHost) );
   CUDA_SAFE_CALL( cudaMemcpy((void*) debugp, (void*) debugp_d, 100*sizeof(float), cudaMemcpyDeviceToHost) );
@@ -707,9 +707,8 @@ int crixus_main(int argc, char** argv){
 
   bool set = true;
   bool firstfgeom = true;
-  unsigned int cnvert, cnbe;
-  uf4 *cnorma, *cposa;
-  ui4 *cep;
+  // number of vertices and boundary elements of the fluid shape file
+  unsigned int fsnvert, fsnbe;
   unsigned int nfluid = 0;
   unsigned int maxf = 0, maxfn;
   int opt;
@@ -758,7 +757,6 @@ int crixus_main(int argc, char** argv){
     xmin = xmax = ymin = ymax = zmin = zmax = 0.;
 
     // data for geometry bounding grid and fluid bounding grid
-    unsigned int fnvert=0, fnbe=0;
     uf4 *fposa=NULL, *fnorma=NULL;
     ui4 *fep=NULL;
 
@@ -807,6 +805,8 @@ int crixus_main(int argc, char** argv){
       int idimg = (int)floor((dmax.a[0]-dmin.a[0]+eps)/dr+1);
       int jdimg = (int)floor((dmax.a[1]-dmin.a[1]+eps)/dr+1);
       int sInd = ispos + jspos*idimg + kspos*idimg*jdimg;
+      // number of vert & bound elements of both geometry & fshape mesh
+      unsigned int fnvert, fnbe;
 
       // initialize geometry if first run
       if(firstfgeom){
@@ -815,32 +815,6 @@ int crixus_main(int argc, char** argv){
         cudaFree(norm_d  );
         cudaFree(pos_d   );
         cudaFree(ep_d    );
-
-        // copy stl geometry to f* arrays
-        fnvert = nvert;
-        fnbe = nbe;
-        fep = new ui4 [fnbe];
-        fnorma = new uf4 [fnbe];
-        fposa = new uf4 [fnvert];
-        unsigned int inbe = 0;
-        for(unsigned int i=0; i<max(fnvert,fnbe); i++){
-          if(i<fnbe){
-            // if a fluid container was set then remove all normals and ep of segments that are outside the box + 2dr
-            if(! set ||
-               (fabs(posa[i+nvert].a[0] - (dmax.a[0]+dmin.a[0])/2.0f) < (dmax.a[0]-dmin.a[0])/2.0f + 2.0f*dr &&
-                fabs(posa[i+nvert].a[1] - (dmax.a[1]+dmin.a[1])/2.0f) < (dmax.a[1]-dmin.a[1])/2.0f + 2.0f*dr &&
-                fabs(posa[i+nvert].a[2] - (dmax.a[2]+dmin.a[2])/2.0f) < (dmax.a[2]-dmin.a[2])/2.0f + 2.0f*dr   )){
-              fep[inbe] = ep[i];
-              fnorma[inbe] = norma[i];
-              inbe++;
-            }
-          }
-          // all vertices will be copied regardless of their location
-          if(i<fnvert)
-            fposa[i] = posa[i];
-        }
-        if(set)
-          fnbe = inbe;
 
         // read fluid geometry
         // read header
@@ -878,7 +852,7 @@ int crixus_main(int argc, char** argv){
               for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
               diff = sqrt(diff);
               if(diff < 1e-5*dr){
-                idum[j] = k+fnvert;
+                idum[j] = k+nvert;
                 found = true;
                 break;
               }
@@ -886,7 +860,7 @@ int crixus_main(int argc, char** argv){
             }
             if(!found){
               pos.push_back(ddum);
-              idum[j] = k+fnvert;
+              idum[j] = k+nvert;
             }
           }
           // get normal of triangle
@@ -900,8 +874,8 @@ int crixus_main(int argc, char** argv){
           if(lenNorm < eps){
             uf4 v10, v20;
             for(int i=0; i<3; i++){
-              v10.a[i] = pos[idum[1]-fnvert][i] - pos[idum[0]-fnvert][i];
-              v20.a[i] = pos[idum[2]-fnvert][i] - pos[idum[0]-fnvert][i];
+              v10.a[i] = pos[idum[1]-nvert][i] - pos[idum[0]-nvert][i];
+              v20.a[i] = pos[idum[2]-nvert][i] - pos[idum[0]-nvert][i];
             }
             uf4 tnorm = cross(v10, v20);
             for(int i=0; i<3; i++)
@@ -917,56 +891,40 @@ int crixus_main(int argc, char** argv){
           cout << " [FAILED]" << endl;
           return READ_ERROR;
         }
-        cnvert = pos.size();
-        cnbe   = norm.size();
+        fsnvert = pos.size();
+        fsnbe   = norm.size();
         cout << " [OK]" << endl;
         cout << "Merging arrays and preparing device for filling ...";
         fflush(stdout);
-        //create and copy vectors to arrays
-        cnorma = new uf4   [fnbe];
-        cposa  = new uf4   [fnvert];
-        cep    = new ui4   [fnbe];
-        for(unsigned int i=0; i<max(fnbe,fnvert); i++){
-          if(i<fnbe){
-            cnorma[i] = fnorma[i];
-            cep   [i] = fep   [i];
+
+        fnorma = new uf4   [nbe+fsnbe];
+        fposa  = new uf4   [nvert+fsnvert];
+        fep    = new ui4   [nbe+fsnbe];
+        // copying vertices and segments of original boundary
+        for(unsigned int i=0; i<max(nbe,nvert); i++){
+          if(i<nbe){
+            fnorma[i] = norma[i];
+            fep   [i] = ep   [i];
           }
-          if(i<fnvert){
-            cposa [i] = fposa [i];
-          }
-        }
-        delete [] fnorma;
-        delete [] fposa;
-        delete [] fep;
-        fnorma = new uf4   [fnbe+cnbe];
-        fposa  = new uf4   [fnvert+cnvert];
-        fep    = new ui4   [fnbe+cnbe];
-        for(unsigned int i=0; i<max(fnbe,fnvert); i++){
-          if(i<fnbe){
-            fnorma[i] = cnorma[i];
-            fep   [i] = cep   [i];
-          }
-          if(i<fnvert){
-            fposa [i] = cposa [i];
+          if(i<nvert){
+            fposa [i] = posa [i];
           }
         }
-        delete [] cnorma;
-        delete [] cposa;
-        delete [] cep;
-        for(unsigned int i=0; i<max(cnvert,cnbe); i++){
-          if(i<cnbe){
+        // copying vertices and segments of free-surface mesh
+        for(unsigned int i=0; i<max(fsnvert,fsnbe); i++){
+          if(i<fsnbe){
             for(int j=0; j<3; j++){
-              fnorma[i+fnbe].a[j] = norm[i][j];
-              fep[i+fnbe].a[j] = epv[i][j];
+              fnorma[i+nbe].a[j] = norm[i][j];
+              fep[i+nbe].a[j] = epv[i][j];
             }
           }
-          if(i<cnvert){
+          if(i<fsnvert){
             for(int j=0; j<3; j++)
-              fposa[i+fnvert].a[j] = pos[i][j];
+              fposa[i+nvert].a[j] = pos[i][j];
           }
         }
-        fnvert += cnvert;
-        fnbe += cnbe;
+        fnvert = nvert + fsnvert;
+        fnbe = nbe + fsnbe;
         pos.clear();
         epv.clear();
         norm.clear();
@@ -990,7 +948,7 @@ int crixus_main(int argc, char** argv){
         nfi = 0;
         CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
-        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sInd, lock_f, cnbe, dr_wall, iteration);
+        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sInd, lock_f, fsnbe, dr_wall, iteration, cell_idx_d, gridn, per_d);
 
         CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
         nfluid += nfi;

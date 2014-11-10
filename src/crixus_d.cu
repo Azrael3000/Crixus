@@ -251,9 +251,9 @@ __global__ void calc_trisize(ui4 *ep, int *trisize, int nbe)
 
 //__device__ volatile int lock_mutex[2];
 #ifndef bdebug
-__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int nvert, int nbe, float dr, float eps, bool *per)
+__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, int *cell_idx, ui4 gridn, uf4 *dmin, uf4 *dmax, int nvert, int nbe, float dr, float eps, bool *per)
 #else
-__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, uf4 *dmin, uf4 *dmax, int nvert, int nbe, float dr, float eps, bool *per, uf4 *debug, float* debugp)
+__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, int *cell_idx, ui4 gridn, uf4 *dmin, uf4 *dmax, int nvert, int nbe, float dr, float eps, bool *per, uf4 *debug, float* debugp)
 #endif
 {
   int i = blockIdx.x*blockDim.x+threadIdx.x;
@@ -272,6 +272,9 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
   bool closed;
   int iduma[3];
   float sp;
+  uf4 griddr;
+  for(unsigned int j=0; j<3; j++)
+    griddr.a[j] = ((*dmax).a[j] - (*dmin).a[j] + eps)/(float)gridn.a[j];
 
   i = blockIdx.x*blockDim.x+threadIdx.x;
   while(i<nvert){
@@ -298,26 +301,58 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 
     //find connected faces
     unsigned int itris = 0;
-    for(unsigned int j=0; j<nbe; j++){
-      for(unsigned int k=0; k<3; k++){
-        if(ep[j].a[k] == i){
-          tri[itris][0] = ep[j].a[(k+1)%3];
-          tri[itris][1] = ep[j].a[(k+2)%3];
-          tri[itris][2] = j;
-#ifdef bdebug
-//        for(int j=0; j<tris; j++){
-          if(i==bdebug){
-          debugp[4+itris*4+0] = ep[j].a[0]+960;
-          debugp[4+itris*4+1] = ep[j].a[1]+960;
-          debugp[4+itris*4+2] = ep[j].a[2]+960;
-          debugp[4+itris*4+3] = tri[itris][2]+2498;
-        }
-//        }
-#endif
-          itris++;
+    // compute cell id of vertex particle
+    ui4 gridi;
+    for(unsigned int j=0; j<3; j++)
+      gridi.a[j] = (int)((pos[i].a[j] - (*dmin).a[j])/griddr.a[j]);
+    // loop over neighbouring boundary elements
+    for(int gi=-1; gi<=1; gi++){
+    for(int gj=-1; gj<=1; gj++){
+    for(int gk=-1; gk<=1; gk++){
+      // neighbour cell id
+      ui4 gridj;
+      gridj.a[0] = gridi.a[0] + gi;
+      gridj.a[1] = gridi.a[1] + gj;
+      gridj.a[2] = gridi.a[2] + gk;
+      gridj.a[3] = gridj.a[0]*gridn.a[1]*gridn.a[2] + gridj.a[1]*gridn.a[2] + gridj.a[2];
+      // periodicity correction
+      bool skip_cell = false;
+      for(unsigned int j=0; j<3; j++){
+        if(gridj.a[j] == -1 || gridj.a[j] == gridn.a[j]){
+          if(per[j]){
+            if(gridj.a[j]==-1)
+              gridj.a[j] = gridn.a[j]-1;
+            else
+              gridj.a[j] = 0;
+          }
+          else
+            skip_cell = true;
         }
       }
-    }
+      if(skip_cell)
+        continue;
+      // loop over all neighbouring boundary elements of cell gridj
+      for(unsigned int j=cell_idx[gridj.a[3]]; j<cell_idx[gridj.a[3]+1]; j++){
+        // check whether a vertex of this segment is equal to the present vertex i
+        for(unsigned int k=0; k<3; k++){
+          if(ep[j].a[k] == i){
+            tri[itris][0] = ep[j].a[(k+1)%3];
+            tri[itris][1] = ep[j].a[(k+2)%3];
+            tri[itris][2] = j;
+#ifdef bdebug
+//          for(int j=0; j<tris; j++){
+            if(i==bdebug){
+              debugp[4+itris*4+0] = ep[j].a[0]+960;
+              debugp[4+itris*4+1] = ep[j].a[1]+960;
+              debugp[4+itris*4+2] = ep[j].a[2]+960;
+              debugp[4+itris*4+3] = tri[itris][2]+2498;
+            }
+#endif
+            itris++;
+          }
+        }
+      }
+    }}}
 
     //try to put neighbouring faces next to each other
     for(unsigned int j=0; j<tris; j++){
@@ -351,9 +386,34 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
 
     // calculate average normal at edge
     itris = 0;
-    for(unsigned int j=0; j<nbe; j++){
-      // only use segments which are close enough
-      if(sqlength3(perCorPos(pos[i]-pos[j+nvert],per,dmax,dmin)) < dr*dr*9){
+    // loop over neighbouring boundary elements
+    for(int gi=-1; gi<=1; gi++){
+    for(int gj=-1; gj<=1; gj++){
+    for(int gk=-1; gk<=1; gk++){
+      // neighbour cell id
+      ui4 gridj;
+      gridj.a[0] = gridi.a[0] + gi;
+      gridj.a[1] = gridi.a[1] + gj;
+      gridj.a[2] = gridi.a[2] + gk;
+      gridj.a[3] = gridj.a[0]*gridn.a[1]*gridn.a[2] + gridj.a[1]*gridn.a[2] + gridj.a[2];
+      // periodicity correction
+      bool skip_cell = false;
+      for(unsigned int j=0; j<3; j++){
+        if(gridj.a[j] == -1 || gridj.a[j] == gridn.a[j]){
+          if(per[j]){
+            if(gridj.a[j]==-1)
+              gridj.a[j] = gridn.a[j]-1;
+            else
+              gridj.a[j] = 0;
+          }
+          else
+            skip_cell = true;
+        }
+      }
+      if(skip_cell)
+        continue;
+      // loop over all neighbouring boundary elements of cell gridj
+      for(unsigned int j=cell_idx[gridj.a[3]]; j<cell_idx[gridj.a[3]+1]; j++){
         for(unsigned int k=0; k<tris; k++){
           if((int)(edgen[k].a[3]+eps)==2)
             continue;
@@ -379,7 +439,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
         if(itris == tris)
           break;
       }
-    }
+    }}}
     for(uint k=0; k<tris; k++) {
       // when we are at the border of the domain the edge will have only one segment
       // then we assume that the normal of this edge is equal to the normal of that segment
@@ -661,7 +721,7 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   return;
 }
 
-__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sInd, Lock lock, int cnbe, float dr_wall, int iteration)
+__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sInd, Lock lock, int cnbe, float dr_wall, int iteration, int *cell_idx, ui4 gridn, bool *per)
 {
   // this function is responsible for filling a complex geometry with fluid
   const unsigned int bitPerUint = 8*sizeof(unsigned int);
@@ -688,17 +748,11 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
   int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
   int i,j,k;
 
-  // indices of seed point
-  int is = -1;
-  int js = -1;
-  int ks = -1;
-  int tmp;
-  if(iteration==1){
-    ks = sInd/(dimg.a[0]*dimg.a[1]);
-    tmp = sInd%(dimg.a[0]*dimg.a[1]);
-    js = tmp/dimg.a[0];
-    is = tmp%dimg.a[0];
-  }
+
+  // delta r of grid
+  uf4 griddr;
+  for(unsigned int j=0; j<3; j++)
+    griddr.a[j] = ((*dmax).a[j] - (*dmin).a[j] + eps)/(float)gridn.a[j];
 
   while(arrayInd<(int)ceil(((float)dimg.a[0]*dimg.a[1]*dimg.a[2])/((float)bitPerUint))){
     // loop through all bits of the array entry with index arrayInd
@@ -707,26 +761,11 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
       //check if position is already filled
       if(!(fpos[arrayInd] & bit)){
         k = bitInd/(dimg.a[0]*dimg.a[1]);
-        tmp = bitInd%(dimg.a[0]*dimg.a[1]);
+        int tmp = bitInd%(dimg.a[0]*dimg.a[1]);
         j = tmp/dimg.a[0];
         i = tmp%dimg.a[0];
         // are we in the big box?
         if(i<dimg.a[0] && j<dimg.a[1] && k<dimg.a[2]){
-          // in iteration 1 check direckt line of sight to seed point
-          if(iteration==1){
-            // note that in the following check we check all triangles, regardless of their distance
-            bool collision = checkCollision(i,j,k,is,js,ks, norm, ep, pos, nbe, dr, dmin, dimg, eps, cnbe, dr_wall);
-            if(!collision){
-              fpos[arrayInd] = fpos[arrayInd] | bit;
-              nfi_tmp++;
-              // if we fill this particle, then for the next bit we can use the present as seed point
-              // as this one is closer we don't have to loop over so many particles
-              is = i;
-              js = j;
-              ks = k;
-              continue;
-            }
-          }
           //look around
           for(int ij=0; ij<6; ij++){
             int ioff = 0, joff = 0, koff = 0;
@@ -744,7 +783,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
             // check whether position is filled
             if(fpos[indOff/bitPerUint] & (1<<(indOff%bitPerUint))){
               // check for collision with triangle
-              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, pos, nbe, dr, dmin, dimg, eps, cnbe, dr_wall);
+              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, pos, nbe, dr, dmin, dimg, eps, cnbe, dr_wall, cell_idx, gridn, griddr, per);
               if(!collision){
                 fpos[arrayInd] = fpos[arrayInd] | bit;
                 nfi_tmp++;
@@ -783,7 +822,7 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
   return;
 }
 
-__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, int cnbe, float dr_wall){
+__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, int cnbe, float dr_wall, int *cell_idx, ui4 gridn, uf4 griddr, bool *per){
   // checks whether the line-segment determined by s. and e. intersects any available triangle and whether s is too close to any triangle
   bool collision = false;
   uf4 s, e, n, v[3], dir;
@@ -799,21 +838,49 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
   // the maximum distance for influence is equal to |(s-e)/2| + 3 * dr + dr_wall, the factor 3 is chosen a bit too large to make sure everything is ok
   float sqMaxInflDist = length3((s-e)/2.0f) + 3.0f*dr + dr_wall;
   sqMaxInflDist *= sqMaxInflDist;
+
+  // compute cell id of position which is to be filled
+  ui4 gridi;
+  for(unsigned int j=0; j<3; j++)
+    gridi.a[j] = (int)((s.a[j] - (*dmin).a[j])/griddr.a[j]);
+
   // loop through all triangles
-  for(int i=0; i<nbe; i++){
-    n = norm[i]; // normal of the triangle
-    for(int j=0; j<3; j++)
-      v[j] = pos[ep[i].a[j]];
-    // if we don't have a coarse grid, the triangle needs to be close enough so that something can happen
-    if(i<nbe-cnbe){
+  for(int gi=-1; gi<=1; gi++){
+  for(int gj=-1; gj<=1; gj++){
+  for(int gk=-1; gk<=1; gk++){
+    // neighbour cell id
+    ui4 gridj;
+    gridj.a[0] = gridi.a[0] + gi;
+    gridj.a[1] = gridi.a[1] + gj;
+    gridj.a[2] = gridi.a[2] + gk;
+    gridj.a[3] = gridj.a[0]*gridn.a[1]*gridn.a[2] + gridj.a[1]*gridn.a[2] + gridj.a[2];
+    // periodicity correction
+    bool skip_cell = false;
+    for(unsigned int j=0; j<3; j++){
+      if(gridj.a[j] == -1 || gridj.a[j] == gridn.a[j]){
+        if(per[j]){
+          if(gridj.a[j]==-1)
+            gridj.a[j] = gridn.a[j]-1;
+          else
+            gridj.a[j] = 0;
+        }
+        else
+          skip_cell = true;
+      }
+    }
+    if(skip_cell)
+      continue;
+    // loop over all neighbouring boundary elements of cell gridj
+    for(unsigned int i=cell_idx[gridj.a[3]]; i<cell_idx[gridj.a[3]+1]; i++){
+      n = norm[i]; // normal of the triangle
+      for(int j=0; j<3; j++)
+        v[j] = pos[ep[i].a[j]];
       // dist = square distance from one vertex to the midpoint between s and e
       float dist = sqlength3((s+e)/2.0f - v[0]);
       if(dist > sqMaxInflDist)
         continue;
-    }
 
-    // check if we are too close to a boundary
-    if(i<nbe-cnbe){
+      // check if we are too close to a boundary
       uf4 segpos;
       uf4 normals[3]; // these are the normal vector of the edge towards the segment
       // segpos is the position of the segment
@@ -858,7 +925,7 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
       orientations.a[2] = dot(projpos + segpos - v[2],normals[2]);
 
       // projection inside the triangle
-      float dist = 0.0;
+      dist = 0.0;
       if(orientations.a[0] > -eps && orientations.a[1] > -eps && orientations.a[2] > -eps){
         // distance is equal to the distance between the projection and s
         dist = sqlength3(projpos - (s - segpos));
@@ -896,7 +963,19 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
       }
       if(dist + eps < dr_wall*dr_wall)
         return true;
+
+      collision = checkTriangleCollision(s, dir, n, v, eps);
+
+      if(collision)
+        return true;
     }
+  }}}
+  // this are the segments of the fshape file
+  // here we need to loop over all of them since we don't know their size
+  for(unsigned int i=nbe-cnbe; i<nbe; i++){
+    n = norm[i]; // normal of the triangle
+    for(int j=0; j<3; j++)
+      v[j] = pos[ep[i].a[j]];
 
     collision = checkTriangleCollision(s, dir, n, v, eps);
 
