@@ -1163,7 +1163,7 @@ __global__ void checkForSingularSegments (uf4 *pos, ui4 *ep, uf4 *norm, float *s
         }
         if (!flipped)
           sbid[nvert + id] = 0;
-          printf("-- ERROR -- Found meshing issue at special boundary\n");
+          printf("-- Warning -- Found meshing issue at special boundary\n");
       }
     }
 
