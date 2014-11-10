@@ -47,9 +47,9 @@ __global__ void add_up_indices (int *cell_idx, int *cur_cell_idx, ui4 gridn)
     return;
   // cell_idx and cur_cell_idx are the same at this point. In the next routine the latter will be used as a counter
   // cell_idx[m] is the starting index of the boundary element with grid id m
+  int n = cell_idx[0];
   cur_cell_idx[0] = 0;
   cell_idx[0] = 0;
-  int n = cell_idx[0];
   for (unsigned int j=1; j<=gridn.a[3]; j++){
     cur_cell_idx[j] = cell_idx[j-1]+n;
     n = cell_idx[j];
