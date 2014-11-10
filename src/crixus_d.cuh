@@ -15,6 +15,14 @@ typedef union{
   int a[4];
 } ui4;
 
+__global__ void init_cell_idx (int *cell_idx, int *cur_cell_idx, ui4 gridn);
+
+__global__ void count_cell_bes (uf4 *pre_pos, int *cell_idx, unsigned int nbe, unsigned int nvert, ui4 gridn, uf4 *dmin, uf4 *dmax, float eps);
+
+__global__ void add_up_indices (int *cell_idx, int *cur_cell_idx, ui4 gridn);
+
+__global__ void sort_bes (uf4 *pre_pos, uf4 *pos, uf4 *pre_norm, uf4 *norm, ui4 *pre_ep, ui4 *ep, float *pre_surf, float *surf, int *cell_idx, int *cur_cell_idx, unsigned int nbe, unsigned int nvert, ui4 gridn, uf4 *dmin, uf4 *dmax, float eps);
+
 __global__ void set_bound_elem (uf4*, uf4*, float*, ui4*, unsigned int, float*, float*, float*, float*, Lock, int);
 
 __global__ void swap_normals (uf4*, int);

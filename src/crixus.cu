@@ -265,17 +265,42 @@ int crixus_main(int argc, char** argv){
     }
   }
   //cuda arrays
+  // starting indices of each cell
+  int *cell_idx_d;
+  // current index of boundary element for a cell
+  int *cur_cell_idx_d;
+  // post sort arrays
   uf4 *norm_d;
   uf4 *pos_d;
-  float *surf_d;
   ui4 *ep_d;
-  CUDA_SAFE_CALL( cudaMalloc((void **) &norm_d,        nbe*sizeof(uf4  )) );
-  CUDA_SAFE_CALL( cudaMalloc((void **) &pos_d ,(nvert+nbe)*sizeof(uf4  )) );
-  CUDA_SAFE_CALL( cudaMalloc((void **) &surf_d,        nbe*sizeof(float)) );
-  CUDA_SAFE_CALL( cudaMalloc((void **) &ep_d  ,        nbe*sizeof(ui4  )) );
-  CUDA_SAFE_CALL( cudaMemcpy((void *) norm_d,(void *) norma,         nbe*sizeof(uf4  ), cudaMemcpyHostToDevice) );
-  CUDA_SAFE_CALL( cudaMemcpy((void *) pos_d ,(void *) posa , (nvert+nbe)*sizeof(uf4  ), cudaMemcpyHostToDevice) );
-  CUDA_SAFE_CALL( cudaMemcpy((void *) ep_d  ,(void *) ep   ,         nbe*sizeof(ui4  ), cudaMemcpyHostToDevice) );
+  float *surf_d;
+  // pre sort arrays
+  uf4 *pre_norm_d;
+  uf4 *pre_pos_d;
+  ui4 *pre_ep_d;
+  float *pre_surf_d;
+
+  // computing number of grid cells in each direction
+  // the grid size is 3 dr
+  ui4 gridn;
+  gridn.a[0] = (int)((xmax-xmin)/dr/3.0);
+  gridn.a[1] = (int)((ymax-ymin)/dr/3.0);
+  gridn.a[2] = (int)((zmax-zmin)/dr/3.0);
+  gridn.a[3] = gridn.a[0]*gridn.a[1]*gridn.a[2];
+
+  CUDA_SAFE_CALL( cudaMalloc((void **) &cell_idx_d    ,(gridn.a[3]+1)*sizeof(int  )) );
+  CUDA_SAFE_CALL( cudaMalloc((void **) &cur_cell_idx_d,(gridn.a[3]+1)*sizeof(int  )) );
+  CUDA_SAFE_CALL( cudaMalloc((void **) &norm_d        ,           nbe*sizeof(uf4  )) );
+  CUDA_SAFE_CALL( cudaMalloc((void **) &pos_d         ,   (nvert+nbe)*sizeof(uf4  )) );
+  CUDA_SAFE_CALL( cudaMalloc((void **) &ep_d          ,           nbe*sizeof(ui4  )) );
+  CUDA_SAFE_CALL( cudaMalloc((void **) &surf_d        ,           nbe*sizeof(float)) );
+  CUDA_SAFE_CALL( cudaMalloc((void **) &pre_norm_d    ,           nbe*sizeof(uf4  )) );
+  CUDA_SAFE_CALL( cudaMalloc((void **) &pre_pos_d     ,   (nvert+nbe)*sizeof(uf4  )) );
+  CUDA_SAFE_CALL( cudaMalloc((void **) &pre_ep_d      ,           nbe*sizeof(ui4  )) );
+  CUDA_SAFE_CALL( cudaMalloc((void **) &pre_surf_d        ,           nbe*sizeof(float)) );
+  CUDA_SAFE_CALL( cudaMemcpy((void *) pre_norm_d,(void *) norma,         nbe*sizeof(uf4  ), cudaMemcpyHostToDevice) );
+  CUDA_SAFE_CALL( cudaMemcpy((void *) pre_pos_d ,(void *) posa , (nvert+nbe)*sizeof(uf4  ), cudaMemcpyHostToDevice) );
+  CUDA_SAFE_CALL( cudaMemcpy((void *) pre_ep_d  ,(void *) ep   ,         nbe*sizeof(ui4  ), cudaMemcpyHostToDevice) );
   cout << " [OK]" << endl;
   cout << "\n\tInformation:" << endl;
   cout << "\tOrigin of domain:           \t(" << xmin << ", " << ymin << ", " << zmin << ")\n";
@@ -290,6 +315,7 @@ int crixus_main(int argc, char** argv){
   numThreads = threadsPerBlock;
   numBlocks = (int) ceil((float)nbe/(float)numThreads);
   numBlocks = min(numBlocks,maxblock);
+
   Lock lock;
   float xminp = 1e10, xminn = 1e10;
   float nminp = 0., nminn = 0.;
@@ -304,10 +330,8 @@ int crixus_main(int argc, char** argv){
   CUDA_SAFE_CALL( cudaMemcpy(nminp_d, &nminp, sizeof(float), cudaMemcpyHostToDevice) );
   CUDA_SAFE_CALL( cudaMemcpy(nminn_d, &nminn, sizeof(float), cudaMemcpyHostToDevice) );
 
-  set_bound_elem<<<numBlocks, numThreads>>> (pos_d, norm_d, surf_d, ep_d, nbe, xminp_d, xminn_d, nminp_d, nminn_d, lock, nvert);
+  set_bound_elem<<<numBlocks, numThreads>>> (pre_pos_d, pre_norm_d, pre_surf_d, pre_ep_d, nbe, xminp_d, xminn_d, nminp_d, nminn_d, lock, nvert);
 
-  CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d  , (nvert+nbe)*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
-  CUDA_SAFE_CALL(  cudaMemcpy((void *) surf,(void *) surf_d ,         nbe*sizeof(float), cudaMemcpyDeviceToHost) );
   CUDA_SAFE_CALL( cudaMemcpy(&xminp, xminp_d, sizeof(float), cudaMemcpyDeviceToHost) );
   CUDA_SAFE_CALL( cudaMemcpy(&xminn, xminn_d, sizeof(float), cudaMemcpyDeviceToHost) );
   CUDA_SAFE_CALL( cudaMemcpy(&nminp, nminp_d, sizeof(float), cudaMemcpyDeviceToHost) );
@@ -318,6 +342,41 @@ int crixus_main(int argc, char** argv){
   cudaFree (nminn_d);
   //host
   cout << " [OK]" << endl;
+
+  //sorting boundary elements according to cell and computing cell starting indices
+  cout << "Sorting boundary elements and computing indices ...";
+  fflush(stdout);
+  // extent of the domain
+  uf4 dmin = {xmin,ymin,zmin,0.};
+  uf4 dmax = {xmax,ymax,zmax,0.};
+  uf4 *dmin_d, *dmax_d;
+  // epsilon value
+  float eps=dr/(float)gres*1e-4;
+  CUDA_SAFE_CALL( cudaMalloc((void **) &dmin_d ,       sizeof(uf4  )) );
+  CUDA_SAFE_CALL( cudaMalloc((void **) &dmax_d ,       sizeof(uf4  )) );
+  CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d , (void *) &dmin    ,       sizeof(float4), cudaMemcpyHostToDevice) );
+  CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d , (void *) &dmax    ,       sizeof(float4), cudaMemcpyHostToDevice) );
+
+  init_cell_idx<<<numBlocks, numThreads>>> (cell_idx_d, cur_cell_idx_d, gridn);
+
+  count_cell_bes<<<numBlocks, numThreads>>> (pre_pos_d, cell_idx_d, nbe, nvert, gridn, dmin_d, dmax_d, eps);
+
+  add_up_indices<<<1,1>>> (cell_idx_d, cur_cell_idx_d, gridn);
+
+  sort_bes<<<numBlocks, numThreads>>> (pre_pos_d, pos_d, pre_norm_d, norm_d, pre_ep_d, ep_d, pre_surf_d, surf_d, cell_idx_d, cur_cell_idx_d, nbe, nvert, gridn, dmin_d, dmax_d, eps);
+
+  CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d  , (nvert+nbe)*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
+  CUDA_SAFE_CALL( cudaMemcpy((void *) surf,(void *) surf_d ,         nbe*sizeof(float), cudaMemcpyDeviceToHost) );
+  CUDA_SAFE_CALL( cudaMemcpy((void *) norma,(void *) norm_d, nbe*sizeof(uf4), cudaMemcpyDeviceToHost) );
+
+  cudaFree (pre_pos_d);
+  cudaFree (pre_norm_d);
+  cudaFree (pre_ep_d);
+  cudaFree (pre_surf_d);
+  cudaFree (cur_cell_idx_d);
+
+  cout << " [OK]" << endl;
+
   cout << "\n\tNormals information:" << endl;
   cout << "\tPositive (n.(0,0,1)) minimum z: " << xminp << " (" << nminp << ")\n";
   cout << "\tNegative (n.(0,0,1)) minimum z: " << xminn << " (" << nminn << ")\n\n";
@@ -342,17 +401,10 @@ int crixus_main(int argc, char** argv){
   cout << endl;
 
   //periodicity
-  uf4 dmin = {xmin,ymin,zmin,0.};
-  uf4 dmax = {xmax,ymax,zmax,0.};
   bool per[3] = {false, false, false};
   int *newlink, *newlink_h;
-  uf4 *dmin_d, *dmax_d;
   newlink_h = new int[nvert];
   CUDA_SAFE_CALL( cudaMalloc((void **) &newlink, nvert*sizeof(float)) );
-  CUDA_SAFE_CALL( cudaMalloc((void **) &dmin_d ,       sizeof(uf4  )) );
-  CUDA_SAFE_CALL( cudaMalloc((void **) &dmax_d ,       sizeof(uf4  )) );
-  CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d , (void *) &dmin    ,       sizeof(float4), cudaMemcpyHostToDevice) );
-  CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d , (void *) &dmax    ,       sizeof(float4), cudaMemcpyHostToDevice) );
   for(unsigned int idim=0; idim<3; idim++){
     string pstring = (idim==0) ? "x" : ((idim==1) ? "y" : "z");
 
@@ -382,7 +434,6 @@ int crixus_main(int argc, char** argv){
   //calculate volume of vertex particles
   cout << "\nCalculating volume of vertex particles ...";
   fflush(stdout);
-  float eps=dr/(float)gres*1e-4;
   int *trisize, *trisize_h;
   float *vol_d;
   bool *per_d;
@@ -602,9 +653,9 @@ int crixus_main(int argc, char** argv){
     if (needsUpdate) {
       cout << "\nInformation: Special boundaries required repositioning of some segments" << endl;
       // copy ep, surf back to host
-      CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d ,         nbe*sizeof(ui4), cudaMemcpyDeviceToHost) );
-      CUDA_SAFE_CALL(  cudaMemcpy((void *) surf,(void *) surf_d ,         nbe*sizeof(float), cudaMemcpyDeviceToHost) );
-      CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d, (nvert+nbe)*sizeof(uf4), cudaMemcpyDeviceToHost) );
+      CUDA_SAFE_CALL( cudaMemcpy((void *) ep  ,(void *) ep_d  ,         nbe*sizeof(ui4)  , cudaMemcpyDeviceToHost) );
+      CUDA_SAFE_CALL( cudaMemcpy((void *) surf,(void *) surf_d,         nbe*sizeof(float), cudaMemcpyDeviceToHost) );
+      CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d , (nvert+nbe)*sizeof(uf4)  , cudaMemcpyDeviceToHost) );
     }
     cudaFree( sbid_d  );
   }

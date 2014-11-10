@@ -11,6 +11,80 @@
 // dot product (3D) which allows vector operations in arguments
 #define dot(u,v)   ((u).a[0] * (v).a[0] + (u).a[1] * (v).a[1] + (u).a[2] * (v).a[2])
 
+__global__ void init_cell_idx (int *cell_idx, int *cur_cell_idx, ui4 gridn)
+{
+  unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
+  // we only need one thread here
+  while(i<=gridn.a[3]){
+    cell_idx[i] = 0;
+    i += blockDim.x*gridDim.x;
+  }
+}
+
+__global__ void count_cell_bes (uf4 *pre_pos, int *cell_idx, unsigned int nbe, unsigned int nvert, ui4 gridn, uf4 *dmin, uf4 *dmax, float eps)
+{
+  unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
+  uf4 griddr;
+  for(unsigned int j=0; j<3; j++)
+    griddr.a[j] = ((*dmax).a[j] - (*dmin).a[j] + eps)/(float)gridn.a[j];
+
+  while(i<nbe){
+    // compute cell id
+    ui4 gridi;
+    for(unsigned int j=0; j<3; j++)
+      gridi.a[j] = (int)((pre_pos[nvert+i].a[j] - (*dmin).a[j])/griddr.a[j]);
+    gridi.a[3] = gridi.a[0]*gridn.a[1]*gridn.a[2] + gridi.a[1]*gridn.a[2] + gridi.a[2];
+    atomicAdd(&cell_idx[gridi.a[3]], 1);
+    i += blockDim.x*gridDim.x;
+  }
+}
+
+__global__ void add_up_indices (int *cell_idx, int *cur_cell_idx, ui4 gridn)
+{
+  unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
+  // we only need one thread here
+  if(i != 0)
+    return;
+  // cell_idx and cur_cell_idx are the same at this point. In the next routine the latter will be used as a counter
+  // cell_idx[m] is the starting index of the boundary element with grid id m
+  cur_cell_idx[0] = 0;
+  cell_idx[0] = 0;
+  int n = cell_idx[0];
+  for (unsigned int j=1; j<=gridn.a[3]; j++){
+    cur_cell_idx[j] = cell_idx[j-1]+n;
+    n = cell_idx[j];
+    cell_idx[j] = cur_cell_idx[j];
+  }
+}
+
+__global__ void sort_bes (uf4 *pre_pos, uf4 *pos, uf4 *pre_norm, uf4 *norm, ui4 *pre_ep, ui4 *ep, float *pre_surf, float *surf, int *cell_idx, int *cur_cell_idx, unsigned int nbe, unsigned int nvert, ui4 gridn, uf4 *dmin, uf4 *dmax, float eps)
+{
+  unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
+  uf4 griddr;
+  for(unsigned int j=0; j<3; j++)
+    griddr.a[j] = ((*dmax).a[j] - (*dmin).a[j] + eps)/(float)gridn.a[j];
+
+  while(i<nvert+nbe){
+    if(i < nvert)
+      pos[i] = pre_pos[i];
+    else{
+      // compute cell id
+      ui4 gridi;
+      for(unsigned int j=0; j<3; j++)
+        gridi.a[j] = (int)((pre_pos[i].a[j] - (*dmin).a[j])/griddr.a[j]);
+      gridi.a[3] = gridi.a[0]*gridn.a[1]*gridn.a[2] + gridi.a[1]*gridn.a[2] + gridi.a[2];
+      // get current index of this cell id and increase counter for this id by 1
+      int j = atomicAdd(&cur_cell_idx[gridi.a[3]], 1);
+      // use the current index to write the values to
+      pos[nvert+j] = pre_pos[i];
+      norm[j] = pre_norm[i-nvert];
+      ep[j] = pre_ep[i-nvert];
+      surf[j] = pre_surf[i-nvert];
+    }
+    i += blockDim.x*gridDim.x;
+  }
+}
+
 __global__ void set_bound_elem (uf4 *pos, uf4 *norm, float *surf, ui4 *ep, unsigned int nbe, float *xminp, float *xminn, float *nminp, float*nminn, Lock lock, int nvert)
 {
   float ddum[3];
