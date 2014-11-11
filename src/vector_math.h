@@ -1,3 +1,6 @@
+#ifndef VECTOR_MATH_H
+#define VECTOR_MATH_H
+
 static __device__ __host__ inline uf4 operator+(uf4 a, const uf4& b){
   a.a[0] += b.a[0];
   a.a[1] += b.a[1];
@@ -51,10 +54,10 @@ static __device__ __host__ inline uf4 cross(uf4 a, uf4 b){
   return c;
 }
 
-static __device__ __host__ inline uf4 perCorPos(uf4 a, const bool *per, const uf4 *dmax, const uf4 *dmin){
+static __device__ __host__ inline uf4 perCorPos(uf4 a, const bool *per, const uf4 dmax, const uf4 dmin){
   for(unsigned int i=0; i<3; i++){
     if(per[i]){
-      const float ds = (*dmax).a[i] - (*dmin).a[i];
+      const float ds = dmax.a[i] - dmin.a[i];
       if(a.a[i] > ds/2.0f)
         a.a[i] -= ds;
       else if(a.a[i] < -ds/2.0f)
@@ -63,3 +66,5 @@ static __device__ __host__ inline uf4 perCorPos(uf4 a, const bool *per, const uf
   }
   return a;
 }
+
+#endif

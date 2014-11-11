@@ -8,10 +8,29 @@
 #include "crixus.h"
 #include "vector_math.h"
 
+namespace crixus_d{
+
+// neighbour list grid dr
+__constant__ uf4 griddr;
+// neighbour list grid number
+__constant__ ui4 gridn;
+// numerical epsiolon
+__constant__ float eps;
+// minimal extend of domain
+__constant__ uf4 dmin;
+// maximum extand of domain
+__constant__ uf4 dmax;
+// periodicity
+__constant__ bool per[3];
+// delta r
+__constant__ float dr;
+// delta r wall
+__constant__ float dr_wall;
+
 // dot product (3D) which allows vector operations in arguments
 #define dot(u,v)   ((u).a[0] * (v).a[0] + (u).a[1] * (v).a[1] + (u).a[2] * (v).a[2])
 
-__global__ void init_cell_idx (int *cell_idx, int *cur_cell_idx, ui4 gridn)
+__global__ void init_cell_idx (int *cell_idx, int *cur_cell_idx)
 {
   unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
   // we only need one thread here
@@ -21,25 +40,22 @@ __global__ void init_cell_idx (int *cell_idx, int *cur_cell_idx, ui4 gridn)
   }
 }
 
-__global__ void count_cell_bes (uf4 *pre_pos, int *cell_idx, unsigned int nbe, unsigned int nvert, ui4 gridn, uf4 *dmin, uf4 *dmax, float eps)
+__global__ void count_cell_bes (uf4 *pre_pos, int *cell_idx, unsigned int nbe, unsigned int nvert)
 {
   unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
-  uf4 griddr;
-  for(unsigned int j=0; j<3; j++)
-    griddr.a[j] = ((*dmax).a[j] - (*dmin).a[j] + eps)/(float)gridn.a[j];
 
   while(i<nbe){
     // compute cell id
     ui4 gridi;
     for(unsigned int j=0; j<3; j++)
-      gridi.a[j] = (int)((pre_pos[nvert+i].a[j] - (*dmin).a[j])/griddr.a[j]);
+      gridi.a[j] = max(min((int)((pre_pos[nvert+i].a[j] - dmin.a[j])/griddr.a[j]), gridn.a[j]-1),0);
     gridi.a[3] = gridi.a[0]*gridn.a[1]*gridn.a[2] + gridi.a[1]*gridn.a[2] + gridi.a[2];
     atomicAdd(&cell_idx[gridi.a[3]], 1);
     i += blockDim.x*gridDim.x;
   }
 }
 
-__global__ void add_up_indices (int *cell_idx, int *cur_cell_idx, ui4 gridn)
+__global__ void add_up_indices (int *cell_idx, int *cur_cell_idx)
 {
   unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
   // we only need one thread here
@@ -57,12 +73,9 @@ __global__ void add_up_indices (int *cell_idx, int *cur_cell_idx, ui4 gridn)
   }
 }
 
-__global__ void sort_bes (uf4 *pre_pos, uf4 *pos, uf4 *pre_norm, uf4 *norm, ui4 *pre_ep, ui4 *ep, float *pre_surf, float *surf, int *cell_idx, int *cur_cell_idx, unsigned int nbe, unsigned int nvert, ui4 gridn, uf4 *dmin, uf4 *dmax, float eps)
+__global__ void sort_bes (uf4 *pre_pos, uf4 *pos, uf4 *pre_norm, uf4 *norm, ui4 *pre_ep, ui4 *ep, float *pre_surf, float *surf, int *cell_idx, int *cur_cell_idx, unsigned int nbe, unsigned int nvert)
 {
   unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
-  uf4 griddr;
-  for(unsigned int j=0; j<3; j++)
-    griddr.a[j] = ((*dmax).a[j] - (*dmin).a[j] + eps)/(float)gridn.a[j];
 
   while(i<nvert+nbe){
     if(i < nvert)
@@ -71,7 +84,7 @@ __global__ void sort_bes (uf4 *pre_pos, uf4 *pos, uf4 *pre_norm, uf4 *norm, ui4 
       // compute cell id
       ui4 gridi;
       for(unsigned int j=0; j<3; j++)
-        gridi.a[j] = (int)((pre_pos[i].a[j] - (*dmin).a[j])/griddr.a[j]);
+        gridi.a[j] = max(min((int)((pre_pos[i].a[j] - dmin.a[j])/griddr.a[j]), gridn.a[j]-1),0);
       gridi.a[3] = gridi.a[0]*gridn.a[1]*gridn.a[2] + gridi.a[1]*gridn.a[2] + gridi.a[2];
       // get current index of this cell id and increase counter for this id by 1
       int j = atomicAdd(&cur_cell_idx[gridi.a[3]], 1);
@@ -193,16 +206,16 @@ __global__ void swap_normals (uf4 *norm, int nbe)
   }
 }
 
-__global__ void find_links(uf4 *pos, int nvert, uf4 *dmax, uf4 *dmin, float dr, int *newlink, int idim)
+__global__ void find_links(uf4 *pos, int nvert, int *newlink, int idim)
 {
   int i = blockIdx.x*blockDim.x+threadIdx.x;
   while(i<nvert){
-    if(fabs(pos[i].a[idim]-(*dmax).a[idim])<1e-4*dr){
+    if(fabs(pos[i].a[idim]-dmax.a[idim])<1e-4*dr){
       for(unsigned int j=0; j<nvert; j++){
         if(j==i) continue;
         if(sqrt(pow(pos[i].a[(idim+1)%3]-pos[j].a[(idim+1)%3],(float)2.)+ \
                 pow(pos[i].a[(idim+2)%3]-pos[j].a[(idim+2)%3],(float)2.)+ \
-                pow(pos[j].a[idim      ]- (*dmin).a[idim]      ,(float)2.) ) < 1e-4*dr){
+                pow(pos[j].a[idim      ]- dmin.a[idim]      ,(float)2.) ) < 1e-4*dr){
           newlink[i] = j;
           //"delete" vertex
           for(int k=0; k<3; k++)
@@ -220,7 +233,7 @@ __global__ void find_links(uf4 *pos, int nvert, uf4 *dmax, uf4 *dmin, float dr, 
 }
 
 //__device__ volatile int lock_per_mutex[2]={0,0};
-__global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *dmax, uf4 *dmin, float dr, int *newlink, int idim)
+__global__ void periodicity_links (uf4 *pos, ui4 *ep, int nvert, int nbe, int *newlink, int idim)
 {
   //find corresponding vertices
   unsigned int i = blockIdx.x*blockDim.x+threadIdx.x;
@@ -251,9 +264,9 @@ __global__ void calc_trisize(ui4 *ep, int *trisize, int nbe)
 
 //__device__ volatile int lock_mutex[2];
 #ifndef bdebug
-__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, int *cell_idx, ui4 gridn, uf4 *dmin, uf4 *dmax, int nvert, int nbe, float dr, float eps, bool *per)
+__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, int *cell_idx, int nvert, int nbe)
 #else
-__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, int *cell_idx, ui4 gridn, uf4 *dmin, uf4 *dmax, int nvert, int nbe, float dr, float eps, bool *per, uf4 *debug, float* debugp)
+__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, int *cell_idx, int nvert, int nbe, uf4 *debug, float* debugp)
 #endif
 {
   int i = blockIdx.x*blockDim.x+threadIdx.x;
@@ -272,9 +285,6 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
   bool closed;
   int iduma[3];
   float sp;
-  uf4 griddr;
-  for(unsigned int j=0; j<3; j++)
-    griddr.a[j] = ((*dmax).a[j] - (*dmin).a[j] + eps)/(float)gridn.a[j];
 
   i = blockIdx.x*blockDim.x+threadIdx.x;
   while(i<nvert){
@@ -304,7 +314,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
     // compute cell id of vertex particle
     ui4 gridi;
     for(unsigned int j=0; j<3; j++)
-      gridi.a[j] = (int)((pos[i].a[j] - (*dmin).a[j])/griddr.a[j]);
+      gridi.a[j] = max(min((int)((pos[i].a[j] - dmin.a[j])/griddr.a[j]), gridn.a[j]-1), 0);
     // loop over neighbouring boundary elements
     for(int gi=-1; gi<=1; gi++){
     for(int gj=-1; gj<=1; gj++){
@@ -431,7 +441,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
             uf4 edge;
             edge = pos[tri[k][0]] - pos[tri[k][1]];
             for(unsigned int n=0; n<3; n++)
-              if(per[n]&&fabs(edge.a[n])>2*dr)  edge.a[n] += sgn(edge.a[n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
+              if(per[n]&&fabs(edge.a[n])>2*dr)  edge.a[n] += sgn(edge.a[n])*(-dmax.a[n]+dmin.a[n]); //periodicity
             edgen[k] = cross(edgen[k], edge);
             itris++;
           }
@@ -488,7 +498,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
           vnorm = 0.;
           for(unsigned int n=0; n<3; n++){
             cvec[j][0][n] = pos[tri[j][0]].a[n]-pos[i].a[n]; //edge 1
-            if(per[n]&&fabs(cvec[j][0][n])>2*dr)  cvec[j][0][n] += sgn(cvec[j][0][n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
+            if(per[n]&&fabs(cvec[j][0][n])>2*dr)  cvec[j][0][n] += sgn(cvec[j][0][n])*(-dmax.a[n]+dmin.a[n]); //periodicity
             vnorm += pow(cvec[j][0][n],2);
           }
           vnorm = sqrt(vnorm);
@@ -497,7 +507,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
           vnorm = 0.;
           for(unsigned int n=0; n<3; n++){
             cvec[j][3][n] = pos[tri[j][1]].a[n]-pos[i].a[n]; //edge 2
-            if(per[n]&&fabs(cvec[j][3][n])>2*dr)  cvec[j][3][n] += sgn(cvec[j][3][n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
+            if(per[n]&&fabs(cvec[j][3][n])>2*dr)  cvec[j][3][n] += sgn(cvec[j][3][n])*(-dmax.a[n]+dmin.a[n]); //periodicity
             vnorm += pow(cvec[j][3][n],2);
             avnorm[n] -= norm[tri[j][2]].a[n];
           }
@@ -532,11 +542,11 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
           //set up plane normals and points
           for(unsigned int n=0; n<3; n++){
             cvec[j][5][n] = pos[tri[j][0]].a[n]-pos[i].a[n]; //normal of plane voronoi
-            if(per[n]&&fabs(cvec[j][5][n])>2*dr)  cvec[j][5][n] += sgn(cvec[j][5][n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
+            if(per[n]&&fabs(cvec[j][5][n])>2*dr)  cvec[j][5][n] += sgn(cvec[j][5][n])*(-dmax.a[n]+dmin.a[n]); //periodicity
             cvec[j][6][n] = pos[i].a[n]+cvec[j][5][n]/2.; //position of plane voronoi
             tvec[0][n] = cvec[j][5][n]; // edge 1
             tvec[1][n] = pos[tri[j][1]].a[n]-pos[i].a[n]; // edge 2
-            if(per[n]&&fabs(tvec[1][n])>2*dr)  tvec[1][n] += sgn(tvec[1][n])*(-(*dmax).a[n]+(*dmin).a[n]); //periodicity
+            if(per[n]&&fabs(tvec[1][n])>2*dr)  tvec[1][n] += sgn(tvec[1][n])*(-dmax.a[n]+dmin.a[n]); //periodicity
             if(!closed){
               cvec[j][7][n] = tvec[1][n]; //normal of plane voronoi 2
               cvec[j][8][n] = pos[i].a[n]+cvec[j][7][n]/2.; //position of plane voronoi 2
@@ -655,7 +665,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
   }
 }
 
-__global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, float xmax, float ymin, float ymax, float zmin, float zmax, uf4 *dmin, uf4 *dmax, float eps, float dr, Lock lock)
+__global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, float xmax, float ymin, float ymax, float zmin, float zmax, Lock lock)
 {
   // this function is responsible for filling a box with fluid
   __shared__ int nfi_cache[threadsPerBlock];
@@ -665,13 +675,13 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   int jdim =  floor((ymax+eps-ymin)/dr)+1;
   int kdim =  floor((zmax+eps-zmin)/dr)+1;
   //dim global
-  int idimg = int(floor(((*dmax).a[0]-(*dmin).a[0]+eps)/dr+1));
-  int jdimg = int(floor(((*dmax).a[1]-(*dmin).a[1]+eps)/dr+1));
-  int kdimg = int(floor(((*dmax).a[2]-(*dmin).a[2]+eps)/dr+1));
+  int idimg = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr+1));
+  int jdimg = int(floor((dmax.a[1]-dmin.a[1]+eps)/dr+1));
+  int kdimg = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr+1));
   //min indices
-  int imin = (int)round(((float)idimg-1.)*(xmin-(*dmin).a[0])/((*dmax).a[0]-(*dmin).a[0]));
-  int jmin = (int)round(((float)jdimg-1.)*(ymin-(*dmin).a[1])/((*dmax).a[1]-(*dmin).a[1]));
-  int kmin = (int)round(((float)kdimg-1.)*(zmin-(*dmin).a[2])/((*dmax).a[2]-(*dmin).a[2]));
+  int imin = (int)round(((float)idimg-1.)*(xmin-dmin.a[0])/(dmax.a[0]-dmin.a[0]));
+  int jmin = (int)round(((float)jdimg-1.)*(ymin-dmin.a[1])/(dmax.a[1]-dmin.a[1]));
+  int kmin = (int)round(((float)kdimg-1.)*(zmin-dmin.a[2])/(dmax.a[2]-dmin.a[2]));
 
   int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
   int i,j,k,tmp,nfi_tmp;
@@ -721,117 +731,71 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   return;
 }
 
-__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, uf4 *dmin, uf4 *dmax, float eps, float dr, int sInd, Lock lock, int cnbe, float dr_wall, int iteration, int *cell_idx, ui4 gridn, bool *per)
-{
-  // this function is responsible for filling a complex geometry with fluid
-  const unsigned int bitPerUint = 8*sizeof(unsigned int);
+// Copyright 2001, softSurfer (www.softsurfer.com)
+// This code may be freely used and modified for any purpose
+// providing that this copyright notice is included with it.
+// SoftSurfer makes no warranty for this code, and cannot be held
+// liable for any real or imagined damage resulting from its use.
+// Users of this code must verify correctness for their application.
 
-  // place seed point
-  int nfi_tmp = 0;
-  if(iteration == 1 && threadIdx.x==0 && blockIdx.x==0)
-  {
-    int sIndex = sInd/bitPerUint;
-    unsigned int sBit = 1<<(sInd%bitPerUint);
-    if(!(fpos[sIndex] & sBit)){
-      nfi_tmp++;
-      fpos[sIndex] = fpos[sIndex] | sBit;
+__device__ bool checkTriangleCollision(uf4 s, uf4 dir, uf4 n, uf4 *vert){
+    uf4    u, v;                              // triangle vectors
+    uf4    w0, w;                        // ray vectors
+    float  r, a, b;                           // params to calc ray-plane intersect
+
+    // get triangle edge vectors and plane normal
+    for(int j=0; j<3; j++){
+      u.a[j] = vert[1].a[j] - vert[0].a[j];
+      v.a[j] = vert[2].a[j] - vert[0].a[j];
+      w0.a[j] = s.a[j] - vert[0].a[j];
     }
-  }
-
-  __shared__ int nfi_cache[threadsPerBlock];
-  //dim global
-  ui4 dimg;
-  dimg.a[0] = int(floor(((*dmax).a[0]-(*dmin).a[0]+eps)/dr+1));
-  dimg.a[1] = int(floor(((*dmax).a[1]-(*dmin).a[1]+eps)/dr+1));
-  dimg.a[2] = int(floor(((*dmax).a[2]-(*dmin).a[2]+eps)/dr+1));
-
-  int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
-  int i,j,k;
-
-
-  // delta r of grid
-  uf4 griddr;
-  for(unsigned int j=0; j<3; j++)
-    griddr.a[j] = ((*dmax).a[j] - (*dmin).a[j] + eps)/(float)gridn.a[j];
-
-  while(arrayInd<(int)ceil(((float)dimg.a[0]*dimg.a[1]*dimg.a[2])/((float)bitPerUint))){
-    // loop through all bits of the array entry with index arrayInd
-    for(int ii=0, bitInd=arrayInd*bitPerUint; ii<bitPerUint; ii++, bitInd++){
-      unsigned int bit = 1<<ii;
-      //check if position is already filled
-      if(!(fpos[arrayInd] & bit)){
-        k = bitInd/(dimg.a[0]*dimg.a[1]);
-        int tmp = bitInd%(dimg.a[0]*dimg.a[1]);
-        j = tmp/dimg.a[0];
-        i = tmp%dimg.a[0];
-        // are we in the big box?
-        if(i<dimg.a[0] && j<dimg.a[1] && k<dimg.a[2]){
-          //look around
-          for(int ij=0; ij<6; ij++){
-            int ioff = 0, joff = 0, koff = 0;
-            if(ij<=1) ioff = (ij==0) ? -1 : 1;
-            if(ij>=4) koff = (ij==4) ? -1 : 1;
-            if(ioff+koff==0) joff = (ij==2) ? -1 : 1;
-            ioff += i;
-            joff += j;
-            koff += k;
-            if(ioff<0 || ioff>=dimg.a[0] ||
-               joff<0 || joff>=dimg.a[1] ||
-               koff<0 || koff>=dimg.a[2]   )
-              continue;
-            int indOff = ioff + joff*dimg.a[0] + koff*dimg.a[0]*dimg.a[1];
-            // check whether position is filled
-            if(fpos[indOff/bitPerUint] & (1<<(indOff%bitPerUint))){
-              // check for collision with triangle
-              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, pos, nbe, dr, dmin, dimg, eps, cnbe, dr_wall, cell_idx, gridn, griddr, per);
-              if(!collision){
-                fpos[arrayInd] = fpos[arrayInd] | bit;
-                nfi_tmp++;
-                break;
-              }
-            }
-          }
-        }
-        else // no longer in big box
-          break;
-      }
+    a = -dot(n,w0);
+    b = dot(n,dir);
+    if (fabs(b) < eps) {                // ray is parallel to triangle plane
+        if (fabs(a) < eps)              // ray lies in triangle plane
+            return true;
+        return false;                         // ray disjoint from plane
     }
-    arrayInd += blockDim.x*gridDim.x;
-  }
 
-  // now sum up all the filled bits
-  int tid = threadIdx.x;
-  nfi_cache[tid] = nfi_tmp;
+    // get intersect point of ray with triangle plane
+    r = a / b;
+    if (r < -eps || r > 1.0 + eps) // intersection point not on triangle plane
+        return false;                         // => no intersect
 
-  __syncthreads();
+    for(int j=0; j<3; j++)
+      w.a[j] = s.a[j] + r*dir.a[j] - vert[0].a[j]; // vector from v0 to intersection point
 
-  j = blockDim.x/2;
-  while (j!=0){
-    if(tid < j)
-      nfi_cache[tid] += nfi_cache[tid+j];
-    __syncthreads();
-    j /= 2;
-  }
+    // is I inside T?
+    float    uu, uv, vv, wu, wv, D;
+    uu = dot(u,u);
+    uv = dot(u,v);
+    vv = dot(v,v);
+    wu = dot(w,u);
+    wv = dot(w,v);
+    D = uv * uv - uu * vv;
 
-  if(tid == 0){
-    lock.lock();
-    *nfi += nfi_cache[0];
-    lock.unlock();
-  }
+    // get and test parametric coords
+    float t1, t2;
+    t1 = (uv * wv - vv * wu) / D;
+    if (t1 < -eps || t1 > 1.0 + eps)        // I is outside T
+        return false;
+    t2 = (uv * wu - uu * wv) / D;
+    if (t2 < -eps || (t1+t2) > 1.0 + eps)  // I is outside T
+        return false;
 
-  return;
+    return true;                      // I is in T
 }
 
-__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, float dr, uf4* dmin, ui4 dimg, float eps, int cnbe, float dr_wall, int *cell_idx, ui4 gridn, uf4 griddr, bool *per){
+__device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, int cnbe, int *cell_idx){
   // checks whether the line-segment determined by s. and e. intersects any available triangle and whether s is too close to any triangle
   bool collision = false;
   uf4 s, e, n, v[3], dir;
-  s.a[0] = ((float)si)*dr + (*dmin).a[0]; // s is the position to be filled
-  s.a[1] = ((float)sj)*dr + (*dmin).a[1];
-  s.a[2] = ((float)sk)*dr + (*dmin).a[2];
-  e.a[0] = ((float)ei)*dr + (*dmin).a[0]; // e is the already filled position
-  e.a[1] = ((float)ej)*dr + (*dmin).a[1];
-  e.a[2] = ((float)ek)*dr + (*dmin).a[2];
+  s.a[0] = ((float)si)*dr + dmin.a[0]; // s is the position to be filled
+  s.a[1] = ((float)sj)*dr + dmin.a[1];
+  s.a[2] = ((float)sk)*dr + dmin.a[2];
+  e.a[0] = ((float)ei)*dr + dmin.a[0]; // e is the already filled position
+  e.a[1] = ((float)ej)*dr + dmin.a[1];
+  e.a[2] = ((float)ek)*dr + dmin.a[2];
   for(int i=0; i<3; i++)
     dir.a[i] = e.a[i] - s.a[i];
 
@@ -842,7 +806,7 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
   // compute cell id of position which is to be filled
   ui4 gridi;
   for(unsigned int j=0; j<3; j++)
-    gridi.a[j] = (int)((s.a[j] - (*dmin).a[j])/griddr.a[j]);
+    gridi.a[j] = max(min((int)((s.a[j] - dmin.a[j])/griddr.a[j]), gridn.a[j]-1),0);
 
   // loop through all triangles
   for(int gi=-1; gi<=1; gi++){
@@ -964,7 +928,7 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
       if(dist + eps < dr_wall*dr_wall)
         return true;
 
-      collision = checkTriangleCollision(s, dir, n, v, eps);
+      collision = checkTriangleCollision(s, dir, n, v);
 
       if(collision)
         return true;
@@ -977,7 +941,7 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
     for(int j=0; j<3; j++)
       v[j] = pos[ep[i].a[j]];
 
-    collision = checkTriangleCollision(s, dir, n, v, eps);
+    collision = checkTriangleCollision(s, dir, n, v);
 
     if(collision)
       return true;
@@ -986,62 +950,127 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
   return collision;
 }
 
-// Copyright 2001, softSurfer (www.softsurfer.com)
-// This code may be freely used and modified for any purpose
-// providing that this copyright notice is included with it.
-// SoftSurfer makes no warranty for this code, and cannot be held
-// liable for any real or imagined damage resulting from its use.
-// Users of this code must verify correctness for their application.
+__global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *norm, ui4 *ep, uf4 *pos, int nbe, int sInd, Lock lock, int cnbe, int iteration, int *cell_idx)
+{
+  // this function is responsible for filling a complex geometry with fluid
+  const unsigned int bitPerUint = 8*sizeof(unsigned int);
 
-__device__ bool checkTriangleCollision(uf4 s, uf4 dir, uf4 n, uf4 *vert, float eps){
-    uf4    u, v;                              // triangle vectors
-    uf4    w0, w;                        // ray vectors
-    float  r, a, b;                           // params to calc ray-plane intersect
-
-    // get triangle edge vectors and plane normal
-    for(int j=0; j<3; j++){
-      u.a[j] = vert[1].a[j] - vert[0].a[j];
-      v.a[j] = vert[2].a[j] - vert[0].a[j];
-      w0.a[j] = s.a[j] - vert[0].a[j];
+  // place seed point
+  int nfi_tmp = 0;
+  if(iteration == 1 && threadIdx.x==0 && blockIdx.x==0)
+  {
+    int sIndex = sInd/bitPerUint;
+    unsigned int sBit = 1<<(sInd%bitPerUint);
+    if(!(fpos[sIndex] & sBit)){
+      nfi_tmp++;
+      fpos[sIndex] = fpos[sIndex] | sBit;
     }
-    a = -dot(n,w0);
-    b = dot(n,dir);
-    if (fabs(b) < eps) {                // ray is parallel to triangle plane
-        if (fabs(a) < eps)              // ray lies in triangle plane
-            return true;
-        return false;                         // ray disjoint from plane
+  }
+
+  __shared__ int nfi_cache[threadsPerBlock];
+  //dim global
+  ui4 dimg;
+  dimg.a[0] = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr+1));
+  dimg.a[1] = int(floor((dmax.a[1]-dmin.a[1]+eps)/dr+1));
+  dimg.a[2] = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr+1));
+
+  int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
+  int i,j,k;
+
+  while(arrayInd<(int)ceil(((float)dimg.a[0]*dimg.a[1]*dimg.a[2])/((float)bitPerUint))){
+    // loop through all bits of the array entry with index arrayInd
+    for(int ii=0, bitInd=arrayInd*bitPerUint; ii<bitPerUint; ii++, bitInd++){
+      unsigned int bit = 1<<ii;
+      //check if position is already filled
+      if(!(fpos[arrayInd] & bit)){
+        k = bitInd/(dimg.a[0]*dimg.a[1]);
+        int tmp = bitInd%(dimg.a[0]*dimg.a[1]);
+        j = tmp/dimg.a[0];
+        i = tmp%dimg.a[0];
+        // are we in the big box?
+        if(i<dimg.a[0] && j<dimg.a[1] && k<dimg.a[2]){
+          //look around
+          for(int ij=0; ij<6; ij++){
+            int ioff = 0, joff = 0, koff = 0;
+            if(ij<=1) ioff = (ij==0) ? -1 : 1;
+            if(ij>=4) koff = (ij==4) ? -1 : 1;
+            if(ioff+koff==0) joff = (ij==2) ? -1 : 1;
+            ioff += i;
+            joff += j;
+            koff += k;
+            if(ioff<0 || ioff>=dimg.a[0] ||
+               joff<0 || joff>=dimg.a[1] ||
+               koff<0 || koff>=dimg.a[2]   )
+              continue;
+            int indOff = ioff + joff*dimg.a[0] + koff*dimg.a[0]*dimg.a[1];
+            // check whether position is filled
+            if(fpos[indOff/bitPerUint] & (1<<(indOff%bitPerUint))){
+              // check for collision with triangle
+              bool collision = checkCollision(i,j,k,ioff,joff,koff, norm, ep, pos, nbe, cnbe, cell_idx);
+              if(!collision){
+                fpos[arrayInd] = fpos[arrayInd] | bit;
+                nfi_tmp++;
+                break;
+              }
+            }
+          }
+        }
+        else // no longer in big box
+          break;
+      }
     }
+    arrayInd += blockDim.x*gridDim.x;
+  }
 
-    // get intersect point of ray with triangle plane
-    r = a / b;
-    if (r < -eps || r > 1.0 + eps) // intersection point not on triangle plane
-        return false;                         // => no intersect
+  // now sum up all the filled bits
+  int tid = threadIdx.x;
+  nfi_cache[tid] = nfi_tmp;
 
-    for(int j=0; j<3; j++)
-      w.a[j] = s.a[j] + r*dir.a[j] - vert[0].a[j]; // vector from v0 to intersection point
+  __syncthreads();
 
-    // is I inside T?
-    float    uu, uv, vv, wu, wv, D;
-    uu = dot(u,u);
-    uv = dot(u,v);
-    vv = dot(v,v);
-    wu = dot(w,u);
-    wv = dot(w,v);
-    D = uv * uv - uu * vv;
+  j = blockDim.x/2;
+  while (j!=0){
+    if(tid < j)
+      nfi_cache[tid] += nfi_cache[tid+j];
+    __syncthreads();
+    j /= 2;
+  }
 
-    // get and test parametric coords
-    float t1, t2;
-    t1 = (uv * wv - vv * wu) / D;
-    if (t1 < -eps || t1 > 1.0 + eps)        // I is outside T
-        return false;
-    t2 = (uv * wu - uu * wv) / D;
-    if (t2 < -eps || (t1+t2) > 1.0 + eps)  // I is outside T
-        return false;
+  if(tid == 0){
+    lock.lock();
+    *nfi += nfi_cache[0];
+    lock.unlock();
+  }
 
-    return true;                      // I is in T
+  return;
 }
 
-__global__ void identifySpecialBoundarySegments (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *sbpos, ui4 *sbep, int sbnbe, float eps, int *sbid, int sbi){
+__device__ bool segInTri(uf4 *vb, uf4 spos, uf4 norm){
+  float dot00, dot01, dot02, dot11, dot12, invdet, u, v;
+  dot00 = 0.;
+  for(int i=0; i<3; i++)
+    dot00 += norm.a[i]*(spos.a[i]-vb[0].a[i]);
+  if(fabs(dot00) > eps)
+    return false;
+  dot00 = dot01 = dot02 = dot11 = dot12 = 0.;
+  for(int i=0; i<3; i++){
+    float ba = (vb[1].a[i] - vb[0].a[i]);
+    float ca = (vb[2].a[i] - vb[0].a[i]);
+    float pa = ( spos.a[i] - vb[0].a[i]);
+    dot00 += ba*ba;
+    dot01 += ba*ca;
+    dot02 += ba*pa;
+    dot11 += ca*ca;
+    dot12 += ca*pa;
+  }
+  invdet = 1.0/(dot00*dot11-dot01*dot01);
+  u = (dot11*dot02-dot01*dot12)*invdet;
+  v = (dot00*dot12-dot01*dot02)*invdet;
+  if( u < -eps || v < -eps || u+v > 1+eps ) return false;
+  return true;
+}
+
+__global__ void identifySpecialBoundarySegments (uf4 *pos, ui4 *ep, int nvert, int nbe, uf4 *sbpos, ui4 *sbep, int sbnbe, int *sbid, int sbi){
   int id = threadIdx.x + blockIdx.x*blockDim.x;
   uf4 vb[3];
   uf4 spos, norm;
@@ -1053,7 +1082,7 @@ __global__ void identifySpecialBoundarySegments (uf4 *pos, ui4 *ep, int nvert, i
       for(int j=0; j<3; j++)
         norm.a[j] = (vb[1].a[(j+1)%3]-vb[0].a[(j+1)%3])*(vb[2].a[(j+2)%3]-vb[0].a[(j+2)%3])
                   - (vb[1].a[(j+2)%3]-vb[0].a[(j+2)%3])*(vb[2].a[(j+1)%3]-vb[0].a[(j+1)%3]);
-      if(segInTri(vb,spos,norm,eps)){
+      if(segInTri(vb,spos,norm)){
         sbid[nvert+id] = sbi;
         for(int j=0; j<3; j++)
           atomicAdd(&sbid[ep[id].a[j]],-1);
@@ -1084,7 +1113,7 @@ __global__ void identifySpecialBoundaryVertices (int *sbid, int i, int *trisize,
 // to which the mass can be redistributed. If no vertex is we search for a fitting triangle
 // (same sbid, normal, one coinciding edge) and then swap the coinciding edge so that this
 // defect can be avoided
-__global__ void checkForSingularSegments (uf4 *pos, ui4 *ep, uf4 *norm, float *surf, int nvert, int nbe, int *sbid, int sbi, float dr, float eps, bool *per, uf4 *dmin, uf4 *dmax, bool *needsUpdate){
+__global__ void checkForSingularSegments (uf4 *pos, ui4 *ep, uf4 *norm, float *surf, int nvert, int nbe, int *sbid, int sbi, bool *needsUpdate){
   int id = threadIdx.x + blockIdx.x*blockDim.x;
   while(id < nbe){
     if(sbid[nvert + id] == sbi){
@@ -1099,7 +1128,7 @@ __global__ void checkForSingularSegments (uf4 *pos, ui4 *ep, uf4 *norm, float *s
           if (id==i)
             continue;
           // only check segments which are close enough
-          if (sqlength3(perCorPos(pos[id]-pos[i],per,dmax,dmin)) < dr*dr*4) {
+          if (sqlength3(perCorPos(pos[id]-pos[i],per,dmin,dmax)) < dr*dr*4) {
             // check if one edge cooincides
             int sameVert = 0;
             // index of non coinciding vertex of segment id
@@ -1172,29 +1201,6 @@ __global__ void checkForSingularSegments (uf4 *pos, ui4 *ep, uf4 *norm, float *s
   return;
 }
 
-__device__ bool segInTri(uf4 *vb, uf4 spos, uf4 norm, float eps){
-  float dot00, dot01, dot02, dot11, dot12, invdet, u, v;
-  dot00 = 0.;
-  for(int i=0; i<3; i++)
-    dot00 += norm.a[i]*(spos.a[i]-vb[0].a[i]);
-  if(fabs(dot00) > eps)
-    return false;
-  dot00 = dot01 = dot02 = dot11 = dot12 = 0.;
-  for(int i=0; i<3; i++){
-    float ba = (vb[1].a[i] - vb[0].a[i]);
-    float ca = (vb[2].a[i] - vb[0].a[i]);
-    float pa = ( spos.a[i] - vb[0].a[i]);
-    dot00 += ba*ba;
-    dot01 += ba*ca;
-    dot02 += ba*pa;
-    dot11 += ca*ca;
-    dot12 += ca*pa;
-  }
-  invdet = 1.0/(dot00*dot11-dot01*dot01);
-  u = (dot11*dot02-dot01*dot12)*invdet;
-  v = (dot00*dot12-dot01*dot02)*invdet;
-  if( u < -eps || v < -eps || u+v > 1+eps ) return false;
-  return true;
-}
+} // end namespace crixus_consts
 
 #endif

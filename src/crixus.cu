@@ -24,6 +24,7 @@
 #include "crixus_d.cuh"
 #include "lock.cuh"
 #include "vector_math.h"
+#include "crixus_d.cu"
 
 using namespace std;
 
@@ -279,6 +280,11 @@ int crixus_main(int argc, char** argv){
   uf4 *pre_pos_d;
   ui4 *pre_ep_d;
   float *pre_surf_d;
+  // extent of the domain
+  uf4 dmin = {xmin,ymin,zmin,0.};
+  uf4 dmax = {xmax,ymax,zmax,0.};
+  // epsilon value
+  float eps=dr/(float)gres*1e-4;
 
   // computing number of grid cells in each direction
   // the grid size is 3 dr
@@ -287,6 +293,16 @@ int crixus_main(int argc, char** argv){
   gridn.a[1] = (int)((ymax-ymin)/dr/3.0);
   gridn.a[2] = (int)((zmax-zmin)/dr/3.0);
   gridn.a[3] = gridn.a[0]*gridn.a[1]*gridn.a[2];
+  uf4 griddr;
+  for(unsigned int j=0; j<3; j++)
+    griddr.a[j] = (dmax.a[j] - dmin.a[j] + eps)/(float)gridn.a[j];
+
+  CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::griddr, &griddr, sizeof(uf4  )) );
+  CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::gridn , &gridn , sizeof(ui4  )) );
+  CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::eps   , &eps   , sizeof(float)) );
+  CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::dmin  , &dmin  , sizeof(uf4  )) );
+  CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::dmax  , &dmax  , sizeof(uf4  )) );
+  CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::dr    , &dr    , sizeof(float)) );
 
   CUDA_SAFE_CALL( cudaMalloc((void **) &cell_idx_d    ,(gridn.a[3]+1)*sizeof(int  )) );
   CUDA_SAFE_CALL( cudaMalloc((void **) &cur_cell_idx_d,(gridn.a[3]+1)*sizeof(int  )) );
@@ -330,7 +346,7 @@ int crixus_main(int argc, char** argv){
   CUDA_SAFE_CALL( cudaMemcpy(nminp_d, &nminp, sizeof(float), cudaMemcpyHostToDevice) );
   CUDA_SAFE_CALL( cudaMemcpy(nminn_d, &nminn, sizeof(float), cudaMemcpyHostToDevice) );
 
-  set_bound_elem<<<numBlocks, numThreads>>> (pre_pos_d, pre_norm_d, pre_surf_d, pre_ep_d, nbe, xminp_d, xminn_d, nminp_d, nminn_d, lock, nvert);
+  crixus_d::set_bound_elem<<<numBlocks, numThreads>>> (pre_pos_d, pre_norm_d, pre_surf_d, pre_ep_d, nbe, xminp_d, xminn_d, nminp_d, nminn_d, lock, nvert);
 
   CUDA_SAFE_CALL( cudaMemcpy(&xminp, xminp_d, sizeof(float), cudaMemcpyDeviceToHost) );
   CUDA_SAFE_CALL( cudaMemcpy(&xminn, xminn_d, sizeof(float), cudaMemcpyDeviceToHost) );
@@ -346,24 +362,14 @@ int crixus_main(int argc, char** argv){
   //sorting boundary elements according to cell and computing cell starting indices
   cout << "Sorting boundary elements and computing indices ...";
   fflush(stdout);
-  // extent of the domain
-  uf4 dmin = {xmin,ymin,zmin,0.};
-  uf4 dmax = {xmax,ymax,zmax,0.};
-  uf4 *dmin_d, *dmax_d;
-  // epsilon value
-  float eps=dr/(float)gres*1e-4;
-  CUDA_SAFE_CALL( cudaMalloc((void **) &dmin_d ,       sizeof(uf4  )) );
-  CUDA_SAFE_CALL( cudaMalloc((void **) &dmax_d ,       sizeof(uf4  )) );
-  CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d , (void *) &dmin    ,       sizeof(float4), cudaMemcpyHostToDevice) );
-  CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d , (void *) &dmax    ,       sizeof(float4), cudaMemcpyHostToDevice) );
 
-  init_cell_idx<<<numBlocks, numThreads>>> (cell_idx_d, cur_cell_idx_d, gridn);
+  crixus_d::init_cell_idx<<<numBlocks, numThreads>>> (cell_idx_d, cur_cell_idx_d);
 
-  count_cell_bes<<<numBlocks, numThreads>>> (pre_pos_d, cell_idx_d, nbe, nvert, gridn, dmin_d, dmax_d, eps);
+  crixus_d::count_cell_bes<<<numBlocks, numThreads>>> (pre_pos_d, cell_idx_d, nbe, nvert);
 
-  add_up_indices<<<1,1>>> (cell_idx_d, cur_cell_idx_d, gridn);
+  crixus_d::add_up_indices<<<1,1>>> (cell_idx_d, cur_cell_idx_d);
 
-  sort_bes<<<numBlocks, numThreads>>> (pre_pos_d, pos_d, pre_norm_d, norm_d, pre_ep_d, ep_d, pre_surf_d, surf_d, cell_idx_d, cur_cell_idx_d, nbe, nvert, gridn, dmin_d, dmax_d, eps);
+  crixus_d::sort_bes<<<numBlocks, numThreads>>> (pre_pos_d, pos_d, pre_norm_d, norm_d, pre_ep_d, ep_d, pre_surf_d, surf_d, cell_idx_d, cur_cell_idx_d, nbe, nvert);
 
   CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d  , (nvert+nbe)*sizeof(uf4  ), cudaMemcpyDeviceToHost) );
   CUDA_SAFE_CALL( cudaMemcpy((void *) surf,(void *) surf_d ,         nbe*sizeof(float), cudaMemcpyDeviceToHost) );
@@ -392,7 +398,7 @@ int crixus_main(int argc, char** argv){
     cout << "Swapping normals ...";
     fflush(stdout);
 
-    swap_normals<<<numBlocks, numThreads>>> (norm_d, nbe);
+    crixus_d::swap_normals<<<numBlocks, numThreads>>> (norm_d, nbe);
 
     CUDA_SAFE_CALL( cudaMemcpy((void *) norma,(void *) norm_d, nbe*sizeof(uf4), cudaMemcpyDeviceToHost) );
 
@@ -418,8 +424,8 @@ int crixus_main(int argc, char** argv){
       numBlocks = (int) ceil((float)max(nvert,nbe)/(float)numThreads);
       numBlocks = min(numBlocks,maxblock);
 
-      find_links <<<numBlocks, numThreads>>> (pos_d, nvert, dmax_d, dmin_d, dr, newlink, idim);
-      periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, dmax_d, dmin_d, dr, newlink, idim);
+      crixus_d::find_links <<<numBlocks, numThreads>>> (pos_d, nvert, newlink, idim);
+      crixus_d::periodicity_links<<<numBlocks,numThreads>>>(pos_d, ep_d, nvert, nbe, newlink, idim);
 
       CUDA_SAFE_CALL( cudaMemcpy((void *) posa,(void *) pos_d, (nvert+nbe)*sizeof(uf4), cudaMemcpyDeviceToHost) );
       //if(err!=0) return err;
@@ -436,22 +442,20 @@ int crixus_main(int argc, char** argv){
   fflush(stdout);
   int *trisize, *trisize_h;
   float *vol_d;
-  bool *per_d;
   trisize_h = new int[nvert];
   for(unsigned int i=0; i<nvert; i++)
     trisize_h[i] = 0;
   CUDA_SAFE_CALL( cudaMalloc((void **) &trisize, nvert*sizeof(int  )) );
   CUDA_SAFE_CALL( cudaMalloc((void **) &vol_d  , nvert*sizeof(float)) );
-  CUDA_SAFE_CALL( cudaMalloc((void **) &per_d  ,     3*sizeof(bool )) );
-  CUDA_SAFE_CALL( cudaMemcpy((void *) per_d  , (void *) per      ,     3*sizeof(bool), cudaMemcpyHostToDevice) );
   CUDA_SAFE_CALL( cudaMemcpy((void *) trisize, (void *) trisize_h, nvert*sizeof(int) , cudaMemcpyHostToDevice) );
+  CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::per, &per, 3*sizeof(bool)) );
   numBlocks = (int) ceil((float)nvert/(float)numThreads);
   numBlocks = min(numBlocks,maxblock);
   delete [] trisize_h;
 
-  calc_trisize <<<numBlocks, numThreads>>> (ep_d, trisize, nbe);
+  crixus_d::calc_trisize <<<numBlocks, numThreads>>> (ep_d, trisize, nbe);
 #ifndef bdebug
-  calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, gridn, dmin_d, dmax_d, nvert, nbe, dr, eps, per_d);
+  crixus_d::calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, nvert, nbe);
 #else
   uf4 *debug, *debug_d;
   int debugs = pow((gres*2+1),3);
@@ -461,7 +465,7 @@ int crixus_main(int argc, char** argv){
   CUDA_SAFE_CALL( cudaMalloc((void **) &debug_d, debugs*sizeof(uf4)) );
   CUDA_SAFE_CALL( cudaMalloc((void **) &debugp_d, 100*sizeof(float)) );
 
-  calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, gridn, dmin_d, dmax_d, nvert, nbe, dr, eps, per_d, debug_d, debugp_d);
+  crixus_d::calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, nvert, nbe, debug_d, debugp_d);
 
   CUDA_SAFE_CALL( cudaMemcpy((void*) debug, (void*) debug_d, debugs*sizeof(uf4), cudaMemcpyDeviceToHost) );
   CUDA_SAFE_CALL( cudaMemcpy((void*) debugp, (void*) debugp_d, 100*sizeof(float), cudaMemcpyDeviceToHost) );
@@ -483,6 +487,7 @@ int crixus_main(int argc, char** argv){
   eps = 1e-10f;
   for(unsigned int i=0; i<3; i++)
     eps = max((dmax.a[i]-dmin.a[i])*1e-5f,eps);
+  CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::eps   , &eps   , sizeof(float)) );
 
   // searching for special boundaries
   int *sbid;
@@ -631,17 +636,17 @@ int crixus_main(int argc, char** argv){
     numBlocks = (int) ceil((float)nbe/(float)numThreads);
     numBlocks = min(numBlocks,maxblock);
 
-    identifySpecialBoundarySegments<<<numBlocks, numThreads>>> (pos_d, ep_d, nvert, nbe, sbpos_d, sbep_d, sbnbe, eps, sbid_d, sbi);
+    crixus_d::identifySpecialBoundarySegments<<<numBlocks, numThreads>>> (pos_d, ep_d, nvert, nbe, sbpos_d, sbep_d, sbnbe, sbid_d, sbi);
 
     numBlocks = (int) ceil((float)nvert/(float)numThreads);
     numBlocks = min(numBlocks,maxblock);
 
-    identifySpecialBoundaryVertices<<<numBlocks, numThreads>>> (sbid_d, sbi, trisize, nvert);
+    crixus_d::identifySpecialBoundaryVertices<<<numBlocks, numThreads>>> (sbid_d, sbi, trisize, nvert);
 
     numBlocks = (int) ceil((float)nbe/(float)numThreads);
     numBlocks = min(numBlocks,maxblock);
 
-    checkForSingularSegments<<<numBlocks, numThreads>>> (pos_d, ep_d, norm_d, surf_d, nvert, nbe, sbid_d, sbi, dr, eps, per_d, dmin_d, dmax_d, needsUpdate_d);
+    crixus_d::checkForSingularSegments<<<numBlocks, numThreads>>> (pos_d, ep_d, norm_d, surf_d, nvert, nbe, sbid_d, sbi, needsUpdate_d);
 
     cudaFree( sbpos_d );
     cudaFree( sbep_d  );
@@ -728,8 +733,8 @@ int crixus_main(int argc, char** argv){
     cout << "Fluid container specified:" << endl;
     cout << "Min coordinates (" << dmin.a[0] << ", " << dmin.a[1] << ", " << dmin.a[2] << ")" << endl;
     cout << "Max coordinates (" << dmax.a[0] << ", " << dmax.a[1] << ", " << dmax.a[2] << ")" << endl;
-    CUDA_SAFE_CALL( cudaMemcpy((void *) dmin_d , (void *) &dmin    ,       sizeof(float4), cudaMemcpyHostToDevice) );
-    CUDA_SAFE_CALL( cudaMemcpy((void *) dmax_d , (void *) &dmax    ,       sizeof(float4), cudaMemcpyHostToDevice) );
+    CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::dmin  , &dmin  , sizeof(uf4  )) );
+    CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::dmax  , &dmax  , sizeof(uf4  )) );
   }
   else{
     cout << "Using whole geometry as fluid container." << endl;
@@ -782,7 +787,7 @@ int crixus_main(int argc, char** argv){
       unsigned int nfi=0;
       CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
-      fill_fluid<<<numBlocks, numThreads>>> (fpos_d, nfi_d, xmin, xmax, ymin, ymax, zmin, zmax, dmin_d, dmax_d, eps, dr, lock_f);
+      crixus_d::fill_fluid<<<numBlocks, numThreads>>> (fpos_d, nfi_d, xmin, xmax, ymin, ymax, zmin, zmax, lock_f);
 
       CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
       nfluid += nfi;
@@ -798,6 +803,7 @@ int crixus_main(int argc, char** argv){
       cout << "Seed point (" << spos[0] << ", " << spos[1] << ", " << spos[2] << ")" << endl;
       dr_wall = config.GetReal(fillSection.str(), "dr_wall", dr);
       cout << "Distance from fluid particles to vertices and segments: " << dr_wall << endl;
+      CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::dr_wall, &dr_wall, sizeof(float)) );
       // initialize placing of seed point
       int ispos = (int)round((spos[0]-dmin.a[0]+eps)/dr);
       int jspos = (int)round((spos[1]-dmin.a[1]+eps)/dr);
@@ -948,7 +954,8 @@ int crixus_main(int argc, char** argv){
         nfi = 0;
         CUDA_SAFE_CALL( cudaMemcpy((void *) nfi_d, (void *) &nfi, sizeof(unsigned int), cudaMemcpyHostToDevice) );
 
-        fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, dmin_d, dmax_d, eps, dr, sInd, lock_f, fsnbe, dr_wall, iteration, cell_idx_d, gridn, per_d);
+        crixus_d::fill_fluid_complex<<<numBlocks,numThreads/4>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, sInd, lock_f, fsnbe, iteration, cell_idx_d);
+        //crixus_d::fill_fluid_complex<<<numBlocks, numThreads>>> (fpos_d, nfi_d, norm_d, ep_d, pos_d, fnbe, sInd, lock_f, fsnbe, iteration, cell_idx_d);
 
         CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
         nfluid += nfi;
@@ -1162,10 +1169,6 @@ int crixus_main(int argc, char** argv){
   delete [] ep;
   delete [] buf;
   delete [] fpos;
-  //Cuda
-  cudaFree( per_d   );
-  cudaFree( dmin_d  );
-  cudaFree( dmax_d  );
 
   //End
   return 0;
