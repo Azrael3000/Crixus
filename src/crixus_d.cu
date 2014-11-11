@@ -18,8 +18,12 @@ __constant__ ui4 gridn;
 __constant__ float eps;
 // minimal extend of domain
 __constant__ uf4 dmin;
-// maximum extand of domain
+// maximum extend of domain
 __constant__ uf4 dmax;
+// minimal extend of fluid container
+__constant__ uf4 fcmin;
+// maximum extend of fluid container
+__constant__ uf4 fcmax;
 // periodicity
 __constant__ bool per[3];
 // delta r
@@ -675,13 +679,13 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
   int jdim =  floor((ymax+eps-ymin)/dr)+1;
   int kdim =  floor((zmax+eps-zmin)/dr)+1;
   //dim global
-  int idimg = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr+1));
-  int jdimg = int(floor((dmax.a[1]-dmin.a[1]+eps)/dr+1));
-  int kdimg = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr+1));
+  int idimg = int(floor((fcmax.a[0]-fcmin.a[0]+eps)/dr+1));
+  int jdimg = int(floor((fcmax.a[1]-fcmin.a[1]+eps)/dr+1));
+  int kdimg = int(floor((fcmax.a[2]-fcmin.a[2]+eps)/dr+1));
   //min indices
-  int imin = (int)round(((float)idimg-1.)*(xmin-dmin.a[0])/(dmax.a[0]-dmin.a[0]));
-  int jmin = (int)round(((float)jdimg-1.)*(ymin-dmin.a[1])/(dmax.a[1]-dmin.a[1]));
-  int kmin = (int)round(((float)kdimg-1.)*(zmin-dmin.a[2])/(dmax.a[2]-dmin.a[2]));
+  int imin = (int)round(((float)idimg-1.)*(xmin-fcmin.a[0])/(fcmax.a[0]-fcmin.a[0]));
+  int jmin = (int)round(((float)jdimg-1.)*(ymin-fcmin.a[1])/(fcmax.a[1]-fcmin.a[1]));
+  int kmin = (int)round(((float)kdimg-1.)*(zmin-fcmin.a[2])/(fcmax.a[2]-fcmin.a[2]));
 
   int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
   int i,j,k,tmp,nfi_tmp;
@@ -790,12 +794,12 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
   // checks whether the line-segment determined by s. and e. intersects any available triangle and whether s is too close to any triangle
   bool collision = false;
   uf4 s, e, n, v[3], dir;
-  s.a[0] = ((float)si)*dr + dmin.a[0]; // s is the position to be filled
-  s.a[1] = ((float)sj)*dr + dmin.a[1];
-  s.a[2] = ((float)sk)*dr + dmin.a[2];
-  e.a[0] = ((float)ei)*dr + dmin.a[0]; // e is the already filled position
-  e.a[1] = ((float)ej)*dr + dmin.a[1];
-  e.a[2] = ((float)ek)*dr + dmin.a[2];
+  s.a[0] = ((float)si)*dr + fcmin.a[0]; // s is the position to be filled
+  s.a[1] = ((float)sj)*dr + fcmin.a[1];
+  s.a[2] = ((float)sk)*dr + fcmin.a[2];
+  e.a[0] = ((float)ei)*dr + fcmin.a[0]; // e is the already filled position
+  e.a[1] = ((float)ej)*dr + fcmin.a[1];
+  e.a[2] = ((float)ek)*dr + fcmin.a[2];
   for(int i=0; i<3; i++)
     dir.a[i] = e.a[i] - s.a[i];
 
@@ -970,9 +974,9 @@ __global__ void fill_fluid_complex (unsigned int *fpos, unsigned int *nfi, uf4 *
   __shared__ int nfi_cache[threadsPerBlock];
   //dim global
   ui4 dimg;
-  dimg.a[0] = int(floor((dmax.a[0]-dmin.a[0]+eps)/dr+1));
-  dimg.a[1] = int(floor((dmax.a[1]-dmin.a[1]+eps)/dr+1));
-  dimg.a[2] = int(floor((dmax.a[2]-dmin.a[2]+eps)/dr+1));
+  dimg.a[0] = int(floor((fcmax.a[0]-fcmin.a[0]+eps)/dr+1));
+  dimg.a[1] = int(floor((fcmax.a[1]-fcmin.a[1]+eps)/dr+1));
+  dimg.a[2] = int(floor((fcmax.a[2]-fcmin.a[2]+eps)/dr+1));
 
   int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
   int i,j,k;

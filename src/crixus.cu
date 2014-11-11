@@ -733,8 +733,8 @@ int crixus_main(int argc, char** argv){
     cout << "Fluid container specified:" << endl;
     cout << "Min coordinates (" << dmin.a[0] << ", " << dmin.a[1] << ", " << dmin.a[2] << ")" << endl;
     cout << "Max coordinates (" << dmax.a[0] << ", " << dmax.a[1] << ", " << dmax.a[2] << ")" << endl;
-    CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::dmin  , &dmin  , sizeof(uf4  )) );
-    CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::dmax  , &dmax  , sizeof(uf4  )) );
+    CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::fcmin  , &dmin  , sizeof(uf4  )) );
+    CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::fcmax  , &dmax  , sizeof(uf4  )) );
   }
   else{
     cout << "Using whole geometry as fluid container." << endl;
