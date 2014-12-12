@@ -328,7 +328,6 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
       gridj.a[0] = gridi.a[0] + gi;
       gridj.a[1] = gridi.a[1] + gj;
       gridj.a[2] = gridi.a[2] + gk;
-      gridj.a[3] = gridj.a[0]*gridn.a[1]*gridn.a[2] + gridj.a[1]*gridn.a[2] + gridj.a[2];
       // periodicity correction
       bool skip_cell = false;
       for(unsigned int j=0; j<3; j++){
@@ -345,6 +344,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
       }
       if(skip_cell)
         continue;
+      gridj.a[3] = gridj.a[0]*gridn.a[1]*gridn.a[2] + gridj.a[1]*gridn.a[2] + gridj.a[2];
       // loop over all neighbouring boundary elements of cell gridj
       for(unsigned int j=cell_idx[gridj.a[3]]; j<cell_idx[gridj.a[3]+1]; j++){
         // check whether a vertex of this segment is equal to the present vertex i
@@ -409,7 +409,6 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
       gridj.a[0] = gridi.a[0] + gi;
       gridj.a[1] = gridi.a[1] + gj;
       gridj.a[2] = gridi.a[2] + gk;
-      gridj.a[3] = gridj.a[0]*gridn.a[1]*gridn.a[2] + gridj.a[1]*gridn.a[2] + gridj.a[2];
       // periodicity correction
       bool skip_cell = false;
       for(unsigned int j=0; j<3; j++){
@@ -426,6 +425,7 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
       }
       if(skip_cell)
         continue;
+      gridj.a[3] = gridj.a[0]*gridn.a[1]*gridn.a[2] + gridj.a[1]*gridn.a[2] + gridj.a[2];
       // loop over all neighbouring boundary elements of cell gridj
       for(unsigned int j=cell_idx[gridj.a[3]]; j<cell_idx[gridj.a[3]+1]; j++){
         for(unsigned int k=0; k<tris; k++){
@@ -821,7 +821,6 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
     gridj.a[0] = gridi.a[0] + gi;
     gridj.a[1] = gridi.a[1] + gj;
     gridj.a[2] = gridi.a[2] + gk;
-    gridj.a[3] = gridj.a[0]*gridn.a[1]*gridn.a[2] + gridj.a[1]*gridn.a[2] + gridj.a[2];
     // periodicity correction
     bool skip_cell = false;
     for(unsigned int j=0; j<3; j++){
@@ -838,6 +837,7 @@ __device__ bool checkCollision(int si, int sj, int sk, int ei, int ej, int ek, u
     }
     if(skip_cell)
       continue;
+    gridj.a[3] = gridj.a[0]*gridn.a[1]*gridn.a[2] + gridj.a[1]*gridn.a[2] + gridj.a[2];
     // loop over all neighbouring boundary elements of cell gridj
     for(unsigned int i=cell_idx[gridj.a[3]]; i<cell_idx[gridj.a[3]+1]; i++){
       n = norm[i]; // normal of the triangle
