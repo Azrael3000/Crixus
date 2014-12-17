@@ -1144,23 +1144,11 @@ int crixus_main(int argc, char** argv){
   cout << "Output format: " << outfformat << endl;
   string outname = configfname.substr(0,configfname.length()-4);
   outname = config.Get("output", "name", outname);
-  if(opt==2){
-    outname = "0." + outname + ".h5sph";
-    cout << "Writing output to file " << outname << " ...";
-    fflush(stdout);
-    err = hdf5_output( buf, nelem, outname.c_str());
-  }
-  else if(opt==1){
-    outname += ".vtu";
-    cout << "Writing output to file " << outname << " ...";
-    fflush(stdout);
-    err = vtk_output( buf, nelem, outname.c_str());
-  }
-  if(err==0){ cout << " [OK]" << endl; }
-  else {
-    cout << " [FAILED]" << endl;
-    return WRITE_FAIL;
-  }
+
+  err = generic_output(buf, 0, nelem, outname.c_str(), opt);
+
+  if (err != 0)
+    return err;
 
   //Free memory
   //Arrays

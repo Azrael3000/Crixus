@@ -17,5 +17,6 @@
 #define MAXLINK_TOO_SMALL -14
 #define MC_FAIL -15
 #define NO_WRITE_FILE -16
+#define INTERNAL_ERROR -17
 
 #endif
