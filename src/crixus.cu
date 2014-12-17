@@ -988,6 +988,9 @@ int crixus_main(int argc, char** argv){
   cout << "Creating and initializing of output buffer of particles ...";
   fflush(stdout);
   OutBuf *buf, *beBuf;
+
+  int num_fluid_particles = 0;
+  int num_boundary_particles = 0;
 #ifndef bdebug
   unsigned int nelem = nvert+nbe+nfluid;
 #else
@@ -1029,6 +1032,7 @@ int crixus_main(int argc, char** argv){
       buf[k].ep2 = 0;
       buf[k].ep3 = 0;
       k++;
+      num_fluid_particles++;
     }
   }
   //vertex particles
@@ -1064,6 +1068,7 @@ int crixus_main(int argc, char** argv){
     buf[k].ep2 = 0;
     buf[k].ep3 = 0;
     k++;
+    num_boundary_particles++;
   }
   const unsigned int nCur = k;
   //boundary segments
@@ -1097,6 +1102,7 @@ int crixus_main(int argc, char** argv){
     beBuf[k-nCur].ep2 = nfluid+ep[i-nvert].a[1] - nvshift[ep[i-nvert].a[1]];
     beBuf[k-nCur].ep3 = nfluid+ep[i-nvert].a[2] - nvshift[ep[i-nvert].a[2]];
     k++;
+    num_boundary_particles++;
   }
   // isbe contains the current index of each sbi
   isbe[0] = 0;
@@ -1145,10 +1151,12 @@ int crixus_main(int argc, char** argv){
   string outname = configfname.substr(0,configfname.length()-4);
   outname = config.Get("output", "name", outname);
 
-  err = generic_output(buf, 0, nelem, outname.c_str(), opt);
-
-  if (err != 0)
-    return err;
+  string curr_outname = outname + ".fluid";
+  err = generic_output(buf, 0, num_fluid_particles, curr_outname.c_str(), opt);
+  if (err != 0) return err;
+  curr_outname = outname + ".boundary";
+  err = generic_output(buf, num_fluid_particles, num_boundary_particles, curr_outname.c_str(), opt);
+  if (err != 0) return err;
 
   //Free memory
   //Arrays
