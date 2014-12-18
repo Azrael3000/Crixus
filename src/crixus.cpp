@@ -258,11 +258,12 @@ int vtk_output (OutBuf *buf, int len, const char *filename){
   return 0;
 }
 
+// Wrapper for {hdf5,vtk}_output()
 int generic_output(OutBuf *buf, int start, int nelem, const char* outname_c, int opt)
 {
   string outname(outname_c);
-  // something's really wrong if opt is not 1 nor 2
-  int err = INTERNAL_ERROR;
+  int err = 0;
+
   if(opt==2){
     outname = "0." + outname + ".h5sph";
     cout << "Writing output to file " << outname << " ...";
@@ -275,6 +276,9 @@ int generic_output(OutBuf *buf, int start, int nelem, const char* outname_c, int
     fflush(stdout);
     err = vtk_output( buf + start, nelem, outname.c_str());
   }
+  else
+    // something's really wrong if opt is not 1 nor 2
+    return err = INTERNAL_ERROR;
 
   if(err==0){ cout << " [OK]" << endl; }
   else {
