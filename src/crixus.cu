@@ -1005,7 +1005,7 @@ int crixus_main(int argc, char** argv){
   unsigned int nelem = nvert+nbe+nfluid+debugs;
 #endif
   buf = new OutBuf[nelem];
-  // buffer for boundary elementss
+  // buffer for boundary elements
   beBuf = new OutBuf[nbe];
   int k=0;
   unsigned int m,n,imin[3];
