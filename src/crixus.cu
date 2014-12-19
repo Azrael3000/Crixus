@@ -651,6 +651,14 @@ int crixus_main(int argc, char** argv){
     cudaFree( sbpos_d );
     cudaFree( sbep_d  );
   }
+
+  // Declare and initialize per-kent counters of particles.
+  // Here sbi is (number_of_special_bounds + 1), so exactly what we need
+  const int num_kents = sbi;
+  int num_parts_per_kent[num_kents];
+  for (int k = 0; k < num_kents; k++)
+    num_parts_per_kent[k] = 0;
+
   cudaFree( trisize );
   if(sbpresent){
     CUDA_SAFE_CALL( cudaMemcpy((void *) sbid, (void *) sbid_d, (nbe+nvert)*sizeof(int) , cudaMemcpyDeviceToHost) );
@@ -1033,6 +1041,7 @@ int crixus_main(int argc, char** argv){
       buf[k].ep3 = 0;
       k++;
       num_fluid_particles++;
+      num_parts_per_kent[ buf[k].kent ]++;
     }
   }
   //vertex particles
@@ -1069,6 +1078,7 @@ int crixus_main(int argc, char** argv){
     buf[k].ep3 = 0;
     k++;
     num_boundary_particles++;
+    num_parts_per_kent[ buf[k].kent ]++;
   }
   const unsigned int nCur = k;
   //boundary segments
@@ -1103,6 +1113,7 @@ int crixus_main(int argc, char** argv){
     beBuf[k-nCur].ep3 = nfluid+ep[i-nvert].a[2] - nvshift[ep[i-nvert].a[2]];
     k++;
     num_boundary_particles++;
+    num_parts_per_kent[ beBuf[k-nCur].kent ]++;
   }
   // isbe contains the current index of each sbi
   isbe[0] = 0;
@@ -1114,6 +1125,7 @@ int crixus_main(int argc, char** argv){
     buf[l] = beBuf[i];
     buf[l].iref = l;
     isbe[beBuf[i].kent]++;
+    // num_parts_per_kent was already incremented while filling beBuf[]
   }
   delete [] nvshift;
 #ifdef bdebug
@@ -1140,6 +1152,22 @@ int crixus_main(int argc, char** argv){
 #endif
   cout << " [OK]" << endl;
 
+  cout << "Sorting particles according to special boundary id...";
+  // allocate per-Kent arrays
+  OutBuf **perKentBufs = new OutBuf*[num_kents]; // particle[kent][part_idx]
+  int *perKentCopiedParts = new int[num_kents]; // #copied_particles[kent]
+  for (int k = 0; k < num_kents; k++) {
+    perKentBufs[k] = new OutBuf[ num_parts_per_kent[k] ];
+    perKentCopiedParts[k] = 0;
+  }
+  // copy particles
+  for (int i = 0; i < nelem; i++) {
+    const int curr_particle_kent = buf[i].kent;
+    perKentBufs[ curr_particle_kent ][ perKentCopiedParts[curr_particle_kent] ] = buf[i];
+    perKentCopiedParts[ curr_particle_kent ] ++;
+   }
+  cout << " [OK]" << endl;
+
   //Output of particles
   int err = 0;
   string outfformat = config.Get("output", "format", "vtu");
@@ -1154,12 +1182,34 @@ int crixus_main(int argc, char** argv){
   string curr_outname = outname + ".fluid";
   err = generic_output(buf, 0, num_fluid_particles, curr_outname.c_str(), opt);
   if (err != 0) return err;
-  curr_outname = outname + ".boundary";
-  err = generic_output(buf, num_fluid_particles, num_boundary_particles, curr_outname.c_str(), opt);
-  if (err != 0) return err;
+
+  // now save a different file for each kent
+  for (int k = 0; k < num_kents; k++) {
+    // yes, int to string in 2014...
+    std::stringstream sstm;
+    sstm << outname << ".boundary.kent" << k;
+    string curr_outname = sstm.str();
+    // initialize range of particles to be save
+    int start_from_part = 0;
+    int num_parts__with_this_kent = perKentCopiedParts[k];
+    // kent 0 includes fluid particles, which we want to skip since already saved
+    if (k==0) {
+        start_from_part = num_fluid_particles;
+        num_parts__with_this_kent -= num_fluid_particles;
+    }
+    // there might be no boundary particles with kent 0, thus the check
+    if (num_parts__with_this_kent > 0) {
+        err = generic_output(perKentBufs[k], start_from_part, num_parts__with_this_kent, curr_outname.c_str(), opt);
+        if (err != 0) return err;
+    }
+  }
 
   //Free memory
   //Arrays
+  for (int k = 0; k < num_kents; k++)
+    delete [] perKentBufs[k];
+  delete [] perKentBufs;
+  delete [] perKentCopiedParts;
   delete [] norma;
   delete [] posa;
   delete [] vola;
