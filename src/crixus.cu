@@ -1113,7 +1113,7 @@ int crixus_main(int argc, char** argv){
     beBuf[k-nCur].ep3 = nfluid+ep[i-nvert].a[2] - nvshift[ep[i-nvert].a[2]];
     k++;
     num_boundary_particles++;
-    num_parts_per_kent[ beBuf[k-nCur].kent ]++;
+    // num_parts_per_kent will be incremented while copying into buf
   }
   // isbe contains the current index of each sbi
   isbe[0] = 0;
@@ -1125,7 +1125,7 @@ int crixus_main(int argc, char** argv){
     buf[l] = beBuf[i];
     buf[l].iref = l;
     isbe[beBuf[i].kent]++;
-    // num_parts_per_kent was already incremented while filling beBuf[]
+    num_parts_per_kent[ beBuf[i].kent ]++;
   }
   delete [] nvshift;
 #ifdef bdebug
