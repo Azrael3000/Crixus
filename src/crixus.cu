@@ -1153,6 +1153,8 @@ int crixus_main(int argc, char** argv){
   cout << " [OK]" << endl;
 
   cout << "Sorting particles according to special boundary id...";
+  fflush(stdout);
+
   // allocate per-Kent arrays
   OutBuf **perKentBufs = new OutBuf*[num_kents]; // particle[kent][part_idx]
   int *perKentCopiedParts = new int[num_kents]; // #copied_particles[kent]
