@@ -655,9 +655,6 @@ int crixus_main(int argc, char** argv){
   // Declare and initialize per-kent counters of particles.
   // Here sbi is (number_of_special_bounds + 1), so exactly what we need
   const int num_kents = sbi;
-  int num_parts_per_kent[num_kents];
-  for (int k = 0; k < num_kents; k++)
-    num_parts_per_kent[k] = 0;
 
   cudaFree( trisize );
   if(sbpresent){
@@ -998,7 +995,6 @@ int crixus_main(int argc, char** argv){
   OutBuf *buf, *beBuf;
 
   int num_fluid_particles = 0;
-  int num_boundary_particles = 0;
 #ifndef bdebug
   unsigned int nelem = nvert+nbe+nfluid;
 #else
@@ -1041,7 +1037,6 @@ int crixus_main(int argc, char** argv){
       buf[k].ep3 = 0;
       k++;
       num_fluid_particles++;
-      num_parts_per_kent[ buf[k].kent ]++;
     }
   }
   //vertex particles
@@ -1077,8 +1072,6 @@ int crixus_main(int argc, char** argv){
     buf[k].ep2 = 0;
     buf[k].ep3 = 0;
     k++;
-    num_boundary_particles++;
-    num_parts_per_kent[ buf[k].kent ]++;
   }
   const unsigned int nCur = k;
   //boundary segments
@@ -1112,8 +1105,6 @@ int crixus_main(int argc, char** argv){
     beBuf[k-nCur].ep2 = nfluid+ep[i-nvert].a[1] - nvshift[ep[i-nvert].a[1]];
     beBuf[k-nCur].ep3 = nfluid+ep[i-nvert].a[2] - nvshift[ep[i-nvert].a[2]];
     k++;
-    num_boundary_particles++;
-    // num_parts_per_kent will be incremented while copying into buf
   }
   // isbe contains the current index of each sbi
   isbe[0] = 0;
@@ -1125,7 +1116,6 @@ int crixus_main(int argc, char** argv){
     buf[l] = beBuf[i];
     buf[l].iref = l;
     isbe[beBuf[i].kent]++;
-    num_parts_per_kent[ beBuf[i].kent ]++;
   }
   delete [] nvshift;
 #ifdef bdebug
@@ -1156,15 +1146,33 @@ int crixus_main(int argc, char** argv){
   fflush(stdout);
 
   // allocate per-Kent arrays
+  int num_parts_per_kent[num_kents]; // equivalent to nsbe?
   OutBuf **perKentBufs = new OutBuf*[num_kents]; // particle[kent][part_idx]
   int *perKentCopiedParts = new int[num_kents]; // #copied_particles[kent]
+
+  // Count number of particles for each kent. It would be more efficient to count them
+  // while creating the particles, but that approach led to discrepancies still to be
+  // investigated
+  for (int k = 0; k < num_kents; k++)
+    num_parts_per_kent[k] = 0;
+  for (int i = 0; i < nelem; i++)
+    num_parts_per_kent[buf[i].kent]++;
+
+  // allocate an array for each kent
   for (int k = 0; k < num_kents; k++) {
+    int allocate_for_curr_kent = num_parts_per_kent[k];
+    // kent 0 includes fluid particles; no need to copy them
+    if (k == 0)
+      allocate_for_curr_kent -= num_fluid_particles;
+    // do not allocate if there are 0 parts with current kent (unlikely)
     if (num_parts_per_kent[k] > 0)
       perKentBufs[k] = new OutBuf[ num_parts_per_kent[k] ];
     else
       perKentBufs[k] = NULL;
+    // initialize progressive index
     perKentCopiedParts[k] = 0;
   }
+
   // copy particles
   for (int i = 0; i < nelem; i++) {
     const int curr_particle_kent = buf[i].kent;
@@ -1180,6 +1188,10 @@ int crixus_main(int argc, char** argv){
     }
    }
   cout << " [OK]" << endl;
+  cout << "Counted:" << endl;
+  cout << " - Fluid particles: " << num_fluid_particles << endl;
+  for (int k = 0; k < num_kents; k++)
+    cout << " - Boundary particles, kent " << k << ": " << num_parts_per_kent[k] << endl;
 
   //Output of particles
   int err = 0;
@@ -1202,17 +1214,13 @@ int crixus_main(int argc, char** argv){
     std::stringstream sstm;
     sstm << outname << ".boundary.kent" << k;
     string curr_outname = sstm.str();
+
     // initialize range of particles to be save
-    int start_from_part = 0;
-    int num_parts__with_this_kent = perKentCopiedParts[k];
-    // kent 0 includes fluid particles, which we want to skip since already saved
-    if (k==0) {
-        start_from_part = num_fluid_particles;
-        num_parts__with_this_kent -= num_fluid_particles;
-    }
+    int num_parts_with_this_kent = perKentCopiedParts[k];
+
     // there might be no boundary particles with kent 0, thus the check
-    if (num_parts__with_this_kent > 0) {
-        err = generic_output(perKentBufs[k], start_from_part, num_parts__with_this_kent, curr_outname.c_str(), opt);
+    if (num_parts_with_this_kent > 0) {
+        err = generic_output(perKentBufs[k], 0, num_parts_with_this_kent, curr_outname.c_str(), opt);
         if (err != 0) return err;
     }
   }
