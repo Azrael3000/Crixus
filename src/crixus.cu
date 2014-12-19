@@ -1157,14 +1157,25 @@ int crixus_main(int argc, char** argv){
   OutBuf **perKentBufs = new OutBuf*[num_kents]; // particle[kent][part_idx]
   int *perKentCopiedParts = new int[num_kents]; // #copied_particles[kent]
   for (int k = 0; k < num_kents; k++) {
-    perKentBufs[k] = new OutBuf[ num_parts_per_kent[k] ];
+    if (num_parts_per_kent[k] > 0)
+      perKentBufs[k] = new OutBuf[ num_parts_per_kent[k] ];
+    else
+      perKentBufs[k] = NULL;
     perKentCopiedParts[k] = 0;
   }
   // copy particles
   for (int i = 0; i < nelem; i++) {
     const int curr_particle_kent = buf[i].kent;
-    perKentBufs[ curr_particle_kent ][ perKentCopiedParts[curr_particle_kent] ] = buf[i];
-    perKentCopiedParts[ curr_particle_kent ] ++;
+    // ensure there is at least one particle with given kent
+    if (num_parts_per_kent[curr_particle_kent] > 0) {
+        if (perKentCopiedParts[curr_particle_kent] >= num_parts_per_kent[curr_particle_kent]) {
+          cout << "Internal error: counted " << num_parts_per_kent[curr_particle_kent] << " particles with kent " <<
+            curr_particle_kent << ", found more. Aborting..." << endl;
+          return INTERNAL_ERROR;
+        }
+        perKentBufs[ curr_particle_kent ][ perKentCopiedParts[curr_particle_kent] ] = buf[i];
+        perKentCopiedParts[ curr_particle_kent ] ++;
+    }
    }
   cout << " [OK]" << endl;
 
