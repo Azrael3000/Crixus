@@ -638,15 +638,15 @@ int crixus_main(int argc, char** argv){
 
     crixus_d::identifySpecialBoundarySegments<<<numBlocks, numThreads>>> (pos_d, ep_d, nvert, nbe, sbpos_d, sbep_d, sbnbe, sbid_d, sbi);
 
-    numBlocks = (int) ceil((float)nvert/(float)numThreads);
-    numBlocks = min(numBlocks,maxblock);
+    //numBlocks = (int) ceil((float)nvert/(float)numThreads);
+    //numBlocks = min(numBlocks,maxblock);
 
-    crixus_d::identifySpecialBoundaryVertices<<<numBlocks, numThreads>>> (sbid_d, sbi, trisize, nvert);
+    //crixus_d::identifySpecialBoundaryVertices<<<numBlocks, numThreads>>> (sbid_d, sbi, trisize, nvert);
 
-    numBlocks = (int) ceil((float)nbe/(float)numThreads);
-    numBlocks = min(numBlocks,maxblock);
+    //numBlocks = (int) ceil((float)nbe/(float)numThreads);
+    //numBlocks = min(numBlocks,maxblock);
 
-    crixus_d::checkForSingularSegments<<<numBlocks, numThreads>>> (pos_d, ep_d, norm_d, surf_d, nvert, nbe, sbid_d, sbi, needsUpdate_d);
+    //crixus_d::checkForSingularSegments<<<numBlocks, numThreads>>> (pos_d, ep_d, norm_d, surf_d, nvert, nbe, sbid_d, sbi, needsUpdate_d);
 
     cudaFree( sbpos_d );
     cudaFree( sbep_d  );
