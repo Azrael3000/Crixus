@@ -738,6 +738,10 @@ int crixus_main(int argc, char** argv){
   }
   else{
     cout << "Using whole geometry as fluid container." << endl;
+    for (unsigned int i=0; i<3; i++) {
+      if (per[i])
+        dmax.a[i] -= dr;
+    }
     CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::fcmin  , &dmin  , sizeof(uf4  )) );
     CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::fcmax  , &dmax  , sizeof(uf4  )) );
   }
