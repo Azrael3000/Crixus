@@ -966,6 +966,8 @@ int crixus_main(int argc, char** argv){
         CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
         nfluid += nfi;
       } while(nfi > 0 && iteration < max_iterations);
+      if (iteration == max_iterations && nfi > 0)
+        cout << "[Information] Complex filling terminated due to reaching max_iterations." << endl;
     }
 
     stringstream fillSectionTest;
