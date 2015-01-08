@@ -1180,16 +1180,16 @@ int crixus_main(int argc, char** argv){
       if (k == 0)
         allocate_for_curr_kent -= num_fluid_particles;
       // do not allocate if there are 0 parts with current kent (unlikely)
-      if (num_parts_per_kent[k] > 0)
-        perKentBufs[k] = new OutBuf[ num_parts_per_kent[k] ];
+      if (allocate_for_curr_kent > 0)
+        perKentBufs[k] = new OutBuf[ allocate_for_curr_kent ];
       else
         perKentBufs[k] = NULL;
       // initialize progressive index
       perKentCopiedParts[k] = 0;
     }
 
-    // copy particles
-    for (int i = 0; i < nelem; i++) {
+    // copy particles, excluding fluid ones
+    for (int i = num_fluid_particles; i < nelem; i++) {
       const int curr_particle_kent = buf[i].kent;
       // ensure there is at least one particle with given kent
       if (num_parts_per_kent[curr_particle_kent] > 0) {
