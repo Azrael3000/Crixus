@@ -1142,57 +1142,6 @@ int crixus_main(int argc, char** argv){
 #endif
   cout << " [OK]" << endl;
 
-  cout << "Sorting particles according to special boundary id...";
-  fflush(stdout);
-
-  // allocate per-Kent arrays
-  int num_parts_per_kent[num_kents]; // equivalent to nsbe?
-  OutBuf **perKentBufs = new OutBuf*[num_kents]; // particle[kent][part_idx]
-  int *perKentCopiedParts = new int[num_kents]; // #copied_particles[kent]
-
-  // Count number of particles for each kent. It would be more efficient to count them
-  // while creating the particles, but that approach led to discrepancies still to be
-  // investigated
-  for (int k = 0; k < num_kents; k++)
-    num_parts_per_kent[k] = 0;
-  for (int i = 0; i < nelem; i++)
-    num_parts_per_kent[buf[i].kent]++;
-
-  // allocate an array for each kent
-  for (int k = 0; k < num_kents; k++) {
-    int allocate_for_curr_kent = num_parts_per_kent[k];
-    // kent 0 includes fluid particles; no need to copy them
-    if (k == 0)
-      allocate_for_curr_kent -= num_fluid_particles;
-    // do not allocate if there are 0 parts with current kent (unlikely)
-    if (num_parts_per_kent[k] > 0)
-      perKentBufs[k] = new OutBuf[ num_parts_per_kent[k] ];
-    else
-      perKentBufs[k] = NULL;
-    // initialize progressive index
-    perKentCopiedParts[k] = 0;
-  }
-
-  // copy particles
-  for (int i = 0; i < nelem; i++) {
-    const int curr_particle_kent = buf[i].kent;
-    // ensure there is at least one particle with given kent
-    if (num_parts_per_kent[curr_particle_kent] > 0) {
-        if (perKentCopiedParts[curr_particle_kent] >= num_parts_per_kent[curr_particle_kent]) {
-          cout << "Internal error: counted " << num_parts_per_kent[curr_particle_kent] << " particles with kent " <<
-            curr_particle_kent << ", found more. Aborting..." << endl;
-          return INTERNAL_ERROR;
-        }
-        perKentBufs[ curr_particle_kent ][ perKentCopiedParts[curr_particle_kent] ] = buf[i];
-        perKentCopiedParts[ curr_particle_kent ] ++;
-    }
-   }
-  cout << " [OK]" << endl;
-  cout << "Counted:" << endl;
-  cout << " - Fluid particles: " << num_fluid_particles << endl;
-  for (int k = 0; k < num_kents; k++)
-    cout << " - Boundary particles, kent " << k << ": " << num_parts_per_kent[k] << endl;
-
   //Output of particles
   int err = 0;
   string outfformat = config.Get("output", "format", "vtu");
@@ -1204,33 +1153,99 @@ int crixus_main(int argc, char** argv){
   string outname = configfname.substr(0,configfname.length()-4);
   outname = config.Get("output", "name", outname);
 
-  string curr_outname = outname + ".fluid";
-  err = generic_output(buf, 0, num_fluid_particles, curr_outname.c_str(), opt);
-  if (err != 0) return err;
+  // if split_output is active, we save fluid parts separately plus we split bounds by kent
+  const bool split_output = config.GetBoolean("output", "split", false);
 
-  // now save a different file for each kent
-  for (int k = 0; k < num_kents; k++) {
-    // yes, int to string in 2014...
-    std::stringstream sstm;
-    sstm << outname << ".boundary.kent" << k;
-    string curr_outname = sstm.str();
+  if (split_output) {
+    cout << "Sorting particles according to special boundary id...";
+    fflush(stdout);
 
-    // initialize range of particles to be save
-    int num_parts_with_this_kent = perKentCopiedParts[k];
+    // allocate per-Kent arrays
+    int num_parts_per_kent[num_kents]; // equivalent to nsbe?
+    OutBuf **perKentBufs = new OutBuf*[num_kents]; // particle[kent][part_idx]
+    int *perKentCopiedParts = new int[num_kents]; // #copied_particles[kent]
 
-    // there might be no boundary particles with kent 0, thus the check
-    if (num_parts_with_this_kent > 0) {
-        err = generic_output(perKentBufs[k], 0, num_parts_with_this_kent, curr_outname.c_str(), opt);
-        if (err != 0) return err;
+    // Count number of particles for each kent. It would be more efficient to count them
+    // while creating the particles, but that approach led to discrepancies still to be
+    // investigated
+    for (int k = 0; k < num_kents; k++)
+      num_parts_per_kent[k] = 0;
+    for (int i = 0; i < nelem; i++)
+      num_parts_per_kent[buf[i].kent]++;
+
+    // allocate an array for each kent
+    for (int k = 0; k < num_kents; k++) {
+      int allocate_for_curr_kent = num_parts_per_kent[k];
+      // kent 0 includes fluid particles; no need to copy them
+      if (k == 0)
+        allocate_for_curr_kent -= num_fluid_particles;
+      // do not allocate if there are 0 parts with current kent (unlikely)
+      if (num_parts_per_kent[k] > 0)
+        perKentBufs[k] = new OutBuf[ num_parts_per_kent[k] ];
+      else
+        perKentBufs[k] = NULL;
+      // initialize progressive index
+      perKentCopiedParts[k] = 0;
     }
+
+    // copy particles
+    for (int i = 0; i < nelem; i++) {
+      const int curr_particle_kent = buf[i].kent;
+      // ensure there is at least one particle with given kent
+      if (num_parts_per_kent[curr_particle_kent] > 0) {
+          if (perKentCopiedParts[curr_particle_kent] >= num_parts_per_kent[curr_particle_kent]) {
+            cout << "Internal error: counted " << num_parts_per_kent[curr_particle_kent] << " particles with kent " <<
+              curr_particle_kent << ", found more. Aborting..." << endl;
+            return INTERNAL_ERROR;
+          }
+          perKentBufs[ curr_particle_kent ][ perKentCopiedParts[curr_particle_kent] ] = buf[i];
+          perKentCopiedParts[ curr_particle_kent ] ++;
+      }
+     }
+    cout << " [OK]" << endl;
+    cout << "Counted:" << endl;
+    cout << " - Fluid particles: " << num_fluid_particles << endl;
+    for (int k = 0; k < num_kents; k++)
+      cout << " - Boundary particles, kent " << k << ": " << num_parts_per_kent[k] << endl;
+
+    // save fluid particles...
+    string curr_outname = outname + ".fluid";
+    err = generic_output(buf, 0, num_fluid_particles, curr_outname.c_str(), opt);
+    if (err != 0) return err;
+
+    // ...then save a different file for each kent
+    for (int k = 0; k < num_kents; k++) {
+      // yes, int to string in 2014...
+      std::stringstream sstm;
+      sstm << outname << ".boundary.kent" << k;
+      string curr_outname = sstm.str();
+
+      // initialize range of particles to be save
+      int num_parts_with_this_kent = perKentCopiedParts[k];
+
+      // there might be no boundary particles with kent 0, thus the check
+      if (num_parts_with_this_kent > 0) {
+          err = generic_output(perKentBufs[k], 0, num_parts_with_this_kent, curr_outname.c_str(), opt);
+          if (err != 0) return err;
+      }
+    }
+
+    // free temporary arrays
+    for (int k = 0; k < num_kents; k++)
+      delete [] perKentBufs[k];
+    delete [] perKentBufs;
+    delete [] perKentCopiedParts;
+
+  } else { // !split_output
+
+    // save all particles into a single file
+    err = generic_output(buf, 0, nelem, outname.c_str(), opt);
+    if (err != 0) return err;
+
   }
 
   //Free memory
   //Arrays
-  for (int k = 0; k < num_kents; k++)
-    delete [] perKentBufs[k];
-  delete [] perKentBufs;
-  delete [] perKentCopiedParts;
   delete [] norma;
   delete [] posa;
   delete [] vola;
