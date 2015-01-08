@@ -1089,7 +1089,8 @@ __global__ void identifySpecialBoundarySegments (uf4 *pos, ui4 *ep, int nvert, i
       if(segInTri(vb,spos,norm)){
         sbid[nvert+id] = sbi;
         for(int j=0; j<3; j++)
-          atomicAdd(&sbid[ep[id].a[j]],-1);
+          sbid[ep[id].a[j]] = sbi;
+          //atomicAdd(&sbid[ep[id].a[j]],-1);
         break;
       }
     }

@@ -22,7 +22,7 @@ const unsigned int           gres = 20; // grid resolution = dr/dr_grid
 const unsigned int         trimax = 50;  // maximum amount of triangles associated to one vertex particle
 const unsigned int        maxlink = 500; // maximum number of links (grid points to boundary elements & vertex particles
 const unsigned int        ipoints = 17;  // number of unique integration points for gauss quadrature (without permutations)
-const unsigned int max_iterations = 100; // maximum number of iterations during complex filling
+const unsigned int max_iterations = 200; // maximum number of iterations during complex filling
 
 //Output structures
 struct OutBuf{

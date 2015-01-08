@@ -638,15 +638,15 @@ int crixus_main(int argc, char** argv){
 
     crixus_d::identifySpecialBoundarySegments<<<numBlocks, numThreads>>> (pos_d, ep_d, nvert, nbe, sbpos_d, sbep_d, sbnbe, sbid_d, sbi);
 
-    numBlocks = (int) ceil((float)nvert/(float)numThreads);
-    numBlocks = min(numBlocks,maxblock);
+    //numBlocks = (int) ceil((float)nvert/(float)numThreads);
+    //numBlocks = min(numBlocks,maxblock);
 
-    crixus_d::identifySpecialBoundaryVertices<<<numBlocks, numThreads>>> (sbid_d, sbi, trisize, nvert);
+    //crixus_d::identifySpecialBoundaryVertices<<<numBlocks, numThreads>>> (sbid_d, sbi, trisize, nvert);
 
-    numBlocks = (int) ceil((float)nbe/(float)numThreads);
-    numBlocks = min(numBlocks,maxblock);
+    //numBlocks = (int) ceil((float)nbe/(float)numThreads);
+    //numBlocks = min(numBlocks,maxblock);
 
-    crixus_d::checkForSingularSegments<<<numBlocks, numThreads>>> (pos_d, ep_d, norm_d, surf_d, nvert, nbe, sbid_d, sbi, needsUpdate_d);
+    //crixus_d::checkForSingularSegments<<<numBlocks, numThreads>>> (pos_d, ep_d, norm_d, surf_d, nvert, nbe, sbid_d, sbi, needsUpdate_d);
 
     cudaFree( sbpos_d );
     cudaFree( sbep_d  );
@@ -743,6 +743,10 @@ int crixus_main(int argc, char** argv){
   }
   else{
     cout << "Using whole geometry as fluid container." << endl;
+    for (unsigned int i=0; i<3; i++) {
+      if (per[i])
+        dmax.a[i] -= dr;
+    }
     CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::fcmin  , &dmin  , sizeof(uf4  )) );
     CUDA_SAFE_CALL( cudaMemcpyToSymbol(crixus_d::fcmax  , &dmax  , sizeof(uf4  )) );
   }
@@ -967,6 +971,8 @@ int crixus_main(int argc, char** argv){
         CUDA_SAFE_CALL( cudaMemcpy((void *) &nfi, (void *) nfi_d, sizeof(unsigned int), cudaMemcpyDeviceToHost) );
         nfluid += nfi;
       } while(nfi > 0 && iteration < max_iterations);
+      if (iteration == max_iterations && nfi > 0)
+        cout << "[Information] Complex filling terminated due to reaching max_iterations." << endl;
     }
 
     stringstream fillSectionTest;
