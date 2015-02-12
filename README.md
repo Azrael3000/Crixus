@@ -30,7 +30,7 @@ Salome offers several options to create a geometry:
 2. Import a geometry
 3. Import an STL file and convert it to a geometry (Salome 7.2 and older)
 
-With the release of Salome 7.4 the last option is no longer available. The user can now import a STL file directly in the geometry module and use this as a basis for meshing. Useres of Salome 7.2 and less should read the following paragraph that details how STL files can be imported in these older versions.
+With the release of Salome 7.4 the last option is no longer available. The user can now import a STL file directly in the geometry module and use this as a basis for meshing. Users of Salome 7.2 and less should read the following paragraph that details how STL files can be imported in these older versions.
 
 Open a new study in Salome (File->New) and switch to the mesh module. Import an STL file (_File->Import->STL File_) and rename it to "Mesh\_import". After that load the script (_File->Load Script_) which is located in _$(CRIXUS\_PATH)/resources/_ and is called "convert\_stl\_to\_geometry.py". Next switch to the geometry module and you should be able to see a geometry called "stl\_geometry".
 
@@ -46,7 +46,7 @@ In detail:
 2. **Netgen 1D-2D**: The "Netgen 2D Simple Parameters" suffice as hypothesis. In the 1D box choose "Local Length" as option and in the 2D box tick "Length from edges".
 3. **Triangle**: No hypothesis required.
 
-For option 1 and 3 a 1D algorithm is required, to select one switch to tab 1D and choose "Wire discretization" as hypothesis choose "Max Length".
+For option 1 and 3 a 1D algorithm is required, to select one switch to tab 1D and choose "Wire discretization" as hypothesis choose "Max Size".
 
 Now finally the last parameter is the characteristic length which needs to be set. Unfortunately the constraint required for Spartacus3D and Sphynx cannot be specified in any meshing tool. The constraint is as follows, the distance between a vertex particle (a triangle vertex) and a segment (located at the triangles barycentre) is allowed to be at most DR, which is the typical particle spacing. So for now I advise to take the length as approximately 3/2\*DR and then check if the distances are ok and then adapt accordingly. Since meshing usually doesn't take very long this should not be a major obstacle. Whether or not this constraint is fulfilled is checked by Crixus, as shown below, so it can be used to adapt the size.
 
