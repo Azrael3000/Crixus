@@ -289,9 +289,9 @@ int crixus_main(int argc, char** argv){
   // computing number of grid cells in each direction
   // the grid size is 3 dr
   ui4 gridn;
-  gridn.a[0] = (int)((xmax-xmin)/dr/3.0);
-  gridn.a[1] = (int)((ymax-ymin)/dr/3.0);
-  gridn.a[2] = (int)((zmax-zmin)/dr/3.0);
+  gridn.a[0] = max((int)((xmax-xmin)/dr/3.0),1);
+  gridn.a[1] = max((int)((ymax-ymin)/dr/3.0),1);
+  gridn.a[2] = max((int)((zmax-zmin)/dr/3.0),1);
   gridn.a[3] = gridn.a[0]*gridn.a[1]*gridn.a[2];
   uf4 griddr;
   for(unsigned int j=0; j<3; j++)
