@@ -786,6 +786,16 @@ int crixus_main(int argc, char** argv){
         cout << "Fluid particle definition ... [FAILED]" << endl;
         return FLUID_NDEF;
       }
+      if (xmin+eps < dmin.a[0] || xmax-eps > dmax.a[0] ||
+          ymin+eps < dmin.a[1] || ymax-eps > dmax.a[1] ||
+          zmin+eps < dmin.a[2] || zmax-eps > dmax.a[2]   ) {
+        cout << "\nFluid box does not fit into Fluid container with" << endl;
+        cout << "\tmin coordinates (" << dmin.a[0] << ", " << dmin.a[1] << ", " << dmin.a[2] << ")" << endl;
+        cout << "\tmax coordinates (" << dmax.a[0] << ", " << dmax.a[1] << ", " << dmax.a[2] << ")" << endl;
+        cout << "It is required to set a fluid container explicitly if the fluid is outside the bounding box of the geometry" << endl;
+        cout << "Fluid particle definition ... [FAILED]" << endl;
+        return FLUID_BBOX_TOO_SMALL;
+      }
       numBlocks = (int) ceil((float)maxf/(float)numThreads);
       numBlocks = min(numBlocks,maxblock);
 
