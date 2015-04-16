@@ -77,15 +77,21 @@ int crixus_main(int argc, char** argv){
   maxthread = threadsPerBlock;
   bool found = false;
   CUDA_SAFE_CALL( cudaGetDeviceCount(&dcount) );
-  for (int i=0; i<dcount; i++){
+  int chosenDevice = config.GetInteger("system", "gpu-id", -1);
+  chosenDevice = min(dcount, max(-1, chosenDevice));
+  const int start = chosenDevice < 0 ? 0 : -1;
+  for (int i=start; i<dcount; i++){
+    int j = i;
+    if (i == -1)
+      j = chosenDevice;
     cudaDeviceProp prop;
-    CUDA_SAFE_CALL( cudaGetDeviceProperties(&prop,i) );
+    CUDA_SAFE_CALL( cudaGetDeviceProperties(&prop,j) );
     if(!prop.kernelExecTimeoutEnabled){
       found = true;
-      CUDA_SAFE_CALL( cudaSetDevice(i) );
+      CUDA_SAFE_CALL( cudaSetDevice(j) );
       maxthread = prop.maxThreadsPerBlock;
       maxblock  = prop.maxGridSize[0];
-      cout << " Id: " << i << " (" << maxthread << ", " << maxblock << ") ...";
+      cout << " Id: " << j << " (" << maxthread << ", " << maxblock << ") ...";
       if(maxthread < threadsPerBlock){
         cout << " [FAILED]" << endl;
         return MAXTHREAD_TOO_BIG;

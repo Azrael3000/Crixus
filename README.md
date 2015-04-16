@@ -197,6 +197,14 @@ After the output is written to the file (in the example case: *0.spheric2\_ready
 4.) Frequently encountered issues
 ---------------------------------
 
+### Chosing a different GPU
+For large cases sufficient memory on the GPU is required. Crixus normally chooses the first suitable GPU to do the computation on. However, in the *ini* file a specific GPU can be specified with:
+```
+[system]
+gpu-id=n
+```
+where *n* is an integer that specifies the appropriate GPU index. This index can be obtained by running the *nvidia-smi -L* command.
+
 ### Blender STL files
 Currently Blender does not correctly write normals in its binary STL files. At the moment Crixus requires that the normals are defined so a warning is printed if they are not set. It is advisable to stop the computation, open the file in ParaView (or similar) and save it again as the computation most likely won't succeed otherwise.
 
