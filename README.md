@@ -77,8 +77,9 @@ The main section is **mesh**. Which has the following options
 2. _dr_ (float)
 3. *swap\_normals* (bool, optional=false)
 4. _fshape_ (string, optional $problem\_fshape.stl)
+5. _zeroOpen_ (bool, optional=false)
 
-where _stlfile_ is the path to the main stl file, _dr_ is the particle size and *swap\_normals* is an optional flag that allows the swapping of the normals of the domain, which has a default value of _false_. The _fshape_ option is the name of a STL mesh file that is used later on for filling.
+where _stlfile_ is the path to the main stl file, _dr_ is the particle size and *swap\_normals* is an optional flag that allows the swapping of the normals of the domain, which has a default value of _false_. The _fshape_ option is the name of a STL mesh file that is used later on for filling. If the _zeroOpen_ flag is set then all vertices that are at an edge of a geometry (i.e. the one-dimensional boundary of the 2-D manifold) will have 0 mass.
 
 In the following the [second SPHERIC validation test](https://wiki.manchester.ac.uk/spheric/index.php/Test2) will be used as an example. The _spheric2.stl_ and _spheric2.ini_ file can be found in the _resources_ folder that is distributed as part of Crixus. The **mesh** section in this case looks as follows
 ```
