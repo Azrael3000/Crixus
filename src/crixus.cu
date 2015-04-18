@@ -459,9 +459,11 @@ int crixus_main(int argc, char** argv){
   numBlocks = min(numBlocks,maxblock);
   delete [] trisize_h;
 
+  const bool zeroOpen = config.GetBoolean("mesh", "zeroOpen", false);
+
   crixus_d::calc_trisize <<<numBlocks, numThreads>>> (ep_d, trisize, nbe);
 #ifndef bdebug
-  crixus_d::calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, nvert, nbe);
+  crixus_d::calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, nvert, nbe, zeroOpen);
 #else
   uf4 *debug, *debug_d;
   int debugs = pow((gres*2+1),3);
@@ -471,7 +473,7 @@ int crixus_main(int argc, char** argv){
   CUDA_SAFE_CALL( cudaMalloc((void **) &debug_d, debugs*sizeof(uf4)) );
   CUDA_SAFE_CALL( cudaMalloc((void **) &debugp_d, 100*sizeof(float)) );
 
-  crixus_d::calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, nvert, nbe, debug_d, debugp_d);
+  crixus_d::calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, nvert, nbe, zeroOpen, debug_d, debugp_d);
 
   CUDA_SAFE_CALL( cudaMemcpy((void*) debug, (void*) debug_d, debugs*sizeof(uf4), cudaMemcpyDeviceToHost) );
   CUDA_SAFE_CALL( cudaMemcpy((void*) debugp, (void*) debugp_d, 100*sizeof(float), cudaMemcpyDeviceToHost) );

@@ -268,9 +268,9 @@ __global__ void calc_trisize(ui4 *ep, int *trisize, int nbe)
 
 //__device__ volatile int lock_mutex[2];
 #ifndef bdebug
-__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, int *cell_idx, int nvert, int nbe)
+__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, int *cell_idx, int nvert, int nbe, bool zeroOpen)
 #else
-__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, int *cell_idx, int nvert, int nbe, uf4 *debug, float* debugp)
+__global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int *trisize, int *cell_idx, int nvert, int nbe, bool zeroOpen, uf4 *debug, float* debugp)
 #endif
 {
   int i = blockIdx.x*blockDim.x+threadIdx.x;
@@ -396,6 +396,14 @@ __global__ void calc_vert_volume (uf4 *pos, uf4 *norm, ui4 *ep, float *vol, int 
     }
     if(tri[0][0] != tri[tris-1][1]){
       closed = false;
+    }
+
+    // if the zeroOption is set then the volume of any vertex that is at an edge of the geometry is set to 0
+    // this is used for the coupling of the SA and SAFlat boundary conditions in GPUSPH
+    if (zeroOpen && !closed) {
+      vol[i] = 0.0;
+      i += blockDim.x*gridDim.x;
+      continue;
     }
 
     // calculate average normal at edge
