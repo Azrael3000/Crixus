@@ -489,8 +489,6 @@ int crixus_main(int argc, char** argv){
 
   cout << " [OK]" << endl;
 
-  cudaFree(vol_d   );
-
   // seting epsilon to something meaningful based on the geometry size
   eps = 1e-10f;
   for(unsigned int i=0; i<3; i++)
