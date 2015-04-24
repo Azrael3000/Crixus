@@ -1062,7 +1062,7 @@ __device__ bool segInTri(uf4 *vb, uf4 spos, uf4 norm){
   dot00 = 0.;
   for(int i=0; i<3; i++)
     dot00 += norm.a[i]*(spos.a[i]-vb[0].a[i]);
-  if(fabs(dot00) > eps)
+  if(fabs(dot00) > eps*norm.a[3])
     return false;
   dot00 = dot01 = dot02 = dot11 = dot12 = 0.;
   for(int i=0; i<3; i++){
@@ -1091,9 +1091,13 @@ __global__ void identifySpecialBoundarySegments (uf4 *pos, ui4 *ep, int nvert, i
     for(int i=0; i<sbnbe; i++){
       for(int j=0; j<3; j++)
         vb[j] = sbpos[sbep[i].a[j]];
-      for(int j=0; j<3; j++)
+      norm.a[3] = 0.0;
+      for(int j=0; j<3; j++) {
         norm.a[j] = (vb[1].a[(j+1)%3]-vb[0].a[(j+1)%3])*(vb[2].a[(j+2)%3]-vb[0].a[(j+2)%3])
                   - (vb[1].a[(j+2)%3]-vb[0].a[(j+2)%3])*(vb[2].a[(j+1)%3]-vb[0].a[(j+1)%3]);
+        norm.a[3] += norm.a[j];
+      }
+      norm.a[3] = fabs(norm.a[3]);
       if(segInTri(vb,spos,norm)){
         sbid[nvert+id] = sbi;
         for(int j=0; j<3; j++)
