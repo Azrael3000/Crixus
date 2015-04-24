@@ -30,7 +30,7 @@ Salome offers several options to create a geometry:
 2. Import a geometry
 3. Import an STL file and convert it to a geometry (Salome 7.2 and older)
 
-With the release of Salome 7.4 the last option is no longer available. The user can now import a STL file directly in the geometry module and use this as a basis for meshing. Useres of Salome 7.2 and less should read the following paragraph that details how STL files can be imported in these older versions.
+With the release of Salome 7.4 the last option is no longer available. The user can now import a STL file directly in the geometry module and use this as a basis for meshing. Users of Salome 7.2 and less should read the following paragraph that details how STL files can be imported in these older versions.
 
 Open a new study in Salome (File->New) and switch to the mesh module. Import an STL file (_File->Import->STL File_) and rename it to "Mesh\_import". After that load the script (_File->Load Script_) which is located in _$(CRIXUS\_PATH)/resources/_ and is called "convert\_stl\_to\_geometry.py". Next switch to the geometry module and you should be able to see a geometry called "stl\_geometry".
 
@@ -46,7 +46,7 @@ In detail:
 2. **Netgen 1D-2D**: The "Netgen 2D Simple Parameters" suffice as hypothesis. In the 1D box choose "Local Length" as option and in the 2D box tick "Length from edges".
 3. **Triangle**: No hypothesis required.
 
-For option 1 and 3 a 1D algorithm is required, to select one switch to tab 1D and choose "Wire discretization" as hypothesis choose "Max Length".
+For option 1 and 3 a 1D algorithm is required, to select one switch to tab 1D and choose "Wire discretization" as hypothesis choose "Max Size".
 
 Now finally the last parameter is the characteristic length which needs to be set. Unfortunately the constraint required for Spartacus3D and Sphynx cannot be specified in any meshing tool. The constraint is as follows, the distance between a vertex particle (a triangle vertex) and a segment (located at the triangles barycentre) is allowed to be at most DR, which is the typical particle spacing. So for now I advise to take the length as approximately 3/2\*DR and then check if the distances are ok and then adapt accordingly. Since meshing usually doesn't take very long this should not be a major obstacle. Whether or not this constraint is fulfilled is checked by Crixus, as shown below, so it can be used to adapt the size.
 
@@ -77,8 +77,9 @@ The main section is **mesh**. Which has the following options
 2. _dr_ (float)
 3. *swap\_normals* (bool, optional=false)
 4. _fshape_ (string, optional $problem\_fshape.stl)
+5. _zeroOpen_ (bool, optional=false)
 
-where _stlfile_ is the path to the main stl file, _dr_ is the particle size and *swap\_normals* is an optional flag that allows the swapping of the normals of the domain, which has a default value of _false_. The _fshape_ option is the name of a STL mesh file that is used later on for filling.
+where _stlfile_ is the path to the main stl file, _dr_ is the particle size and *swap\_normals* is an optional flag that allows the swapping of the normals of the domain, which has a default value of _false_. The _fshape_ option is the name of a STL mesh file that is used later on for filling. If the _zeroOpen_ flag is set then all vertices that are at an edge of a geometry (i.e. the one-dimensional boundary of the 2-D manifold) will have 0 mass.
 
 In the following the [second SPHERIC validation test](https://wiki.manchester.ac.uk/spheric/index.php/Test2) will be used as an example. The _spheric2.stl_ and _spheric2.ini_ file can be found in the _resources_ folder that is distributed as part of Crixus. The **mesh** section in this case looks as follows
 ```
@@ -196,6 +197,14 @@ After the output is written to the file (in the example case: *0.spheric2\_ready
 
 4.) Frequently encountered issues
 ---------------------------------
+
+### Chosing a different GPU
+For large cases sufficient memory on the GPU is required. Crixus normally chooses the first suitable GPU to do the computation on. However, in the *ini* file a specific GPU can be specified with:
+```
+[system]
+gpu-id=n
+```
+where *n* is an integer that specifies the appropriate GPU index. This index can be obtained by running the *nvidia-smi -L* command.
 
 ### Blender STL files
 Currently Blender does not correctly write normals in its binary STL files. At the moment Crixus requires that the normals are defined so a warning is printed if they are not set. It is advisable to stop the computation, open the file in ParaView (or similar) and save it again as the computation most likely won't succeed otherwise.

@@ -77,15 +77,21 @@ int crixus_main(int argc, char** argv){
   maxthread = threadsPerBlock;
   bool found = false;
   CUDA_SAFE_CALL( cudaGetDeviceCount(&dcount) );
-  for (int i=0; i<dcount; i++){
+  int chosenDevice = config.GetInteger("system", "gpu-id", -1);
+  chosenDevice = min(dcount, max(-1, chosenDevice));
+  const int start = chosenDevice < 0 ? 0 : -1;
+  for (int i=start; i<dcount; i++){
+    int j = i;
+    if (i == -1)
+      j = chosenDevice;
     cudaDeviceProp prop;
-    CUDA_SAFE_CALL( cudaGetDeviceProperties(&prop,i) );
+    CUDA_SAFE_CALL( cudaGetDeviceProperties(&prop,j) );
     if(!prop.kernelExecTimeoutEnabled){
       found = true;
-      CUDA_SAFE_CALL( cudaSetDevice(i) );
+      CUDA_SAFE_CALL( cudaSetDevice(j) );
       maxthread = prop.maxThreadsPerBlock;
       maxblock  = prop.maxGridSize[0];
-      cout << " Id: " << i << " (" << maxthread << ", " << maxblock << ") ...";
+      cout << " Id: " << j << " (" << maxthread << ", " << maxblock << ") ...";
       if(maxthread < threadsPerBlock){
         cout << " [FAILED]" << endl;
         return MAXTHREAD_TOO_BIG;
@@ -289,9 +295,9 @@ int crixus_main(int argc, char** argv){
   // computing number of grid cells in each direction
   // the grid size is 3 dr
   ui4 gridn;
-  gridn.a[0] = (int)((xmax-xmin)/dr/3.0);
-  gridn.a[1] = (int)((ymax-ymin)/dr/3.0);
-  gridn.a[2] = (int)((zmax-zmin)/dr/3.0);
+  gridn.a[0] = max((int)((xmax-xmin)/dr/3.0),1);
+  gridn.a[1] = max((int)((ymax-ymin)/dr/3.0),1);
+  gridn.a[2] = max((int)((zmax-zmin)/dr/3.0),1);
   gridn.a[3] = gridn.a[0]*gridn.a[1]*gridn.a[2];
   uf4 griddr;
   for(unsigned int j=0; j<3; j++)
@@ -453,9 +459,11 @@ int crixus_main(int argc, char** argv){
   numBlocks = min(numBlocks,maxblock);
   delete [] trisize_h;
 
+  const bool zeroOpen = config.GetBoolean("mesh", "zeroOpen", false);
+
   crixus_d::calc_trisize <<<numBlocks, numThreads>>> (ep_d, trisize, nbe);
 #ifndef bdebug
-  crixus_d::calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, nvert, nbe);
+  crixus_d::calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, nvert, nbe, zeroOpen);
 #else
   uf4 *debug, *debug_d;
   int debugs = pow((gres*2+1),3);
@@ -465,7 +473,7 @@ int crixus_main(int argc, char** argv){
   CUDA_SAFE_CALL( cudaMalloc((void **) &debug_d, debugs*sizeof(uf4)) );
   CUDA_SAFE_CALL( cudaMalloc((void **) &debugp_d, 100*sizeof(float)) );
 
-  crixus_d::calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, nvert, nbe, debug_d, debugp_d);
+  crixus_d::calc_vert_volume <<<numBlocks, numThreads>>> (pos_d, norm_d, ep_d, vol_d, trisize, cell_idx_d, nvert, nbe, zeroOpen, debug_d, debugp_d);
 
   CUDA_SAFE_CALL( cudaMemcpy((void*) debug, (void*) debug_d, debugs*sizeof(uf4), cudaMemcpyDeviceToHost) );
   CUDA_SAFE_CALL( cudaMemcpy((void*) debugp, (void*) debugp_d, 100*sizeof(float), cudaMemcpyDeviceToHost) );
@@ -480,8 +488,6 @@ int crixus_main(int argc, char** argv){
   cudaFree( vol_d   );
 
   cout << " [OK]" << endl;
-
-  cudaFree(vol_d   );
 
   // seting epsilon to something meaningful based on the geometry size
   eps = 1e-10f;
@@ -790,6 +796,16 @@ int crixus_main(int argc, char** argv){
         cout << "\nMistake in input for fluid box dimensions" << endl;
         cout << "Fluid particle definition ... [FAILED]" << endl;
         return FLUID_NDEF;
+      }
+      if (xmin+eps < dmin.a[0] || xmax-eps > dmax.a[0] ||
+          ymin+eps < dmin.a[1] || ymax-eps > dmax.a[1] ||
+          zmin+eps < dmin.a[2] || zmax-eps > dmax.a[2]   ) {
+        cout << "\nFluid box does not fit into Fluid container with" << endl;
+        cout << "\tmin coordinates (" << dmin.a[0] << ", " << dmin.a[1] << ", " << dmin.a[2] << ")" << endl;
+        cout << "\tmax coordinates (" << dmax.a[0] << ", " << dmax.a[1] << ", " << dmax.a[2] << ")" << endl;
+        cout << "It is required to set a fluid container explicitly if the fluid is outside the bounding box of the geometry" << endl;
+        cout << "Fluid particle definition ... [FAILED]" << endl;
+        return FLUID_BBOX_TOO_SMALL;
       }
       numBlocks = (int) ceil((float)maxf/(float)numThreads);
       numBlocks = min(numBlocks,maxblock);
