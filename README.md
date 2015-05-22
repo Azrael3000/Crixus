@@ -52,15 +52,27 @@ Now finally the last parameter is the characteristic length which needs to be se
 
 Once the algorithms are set up, compute the mesh (Mesh->Compute) and export the resulting mesh as STL file (File->Export->STL File). Make sure that the file is saved in the **binary** STL format.
 
+**Testing the triangle size:**
+
+The triangle size for Crixus needs to fulfill a certain criterion. To check whether this is met a dedicated tool exists in the _resources_ folder of Crixus, which is called _test-triangle-size_. To compile it use
+```
+gcc -o test-triangle-size -lm test-triangle-size.c
+```
+and then run it using
+```
+$(CRIXUS_PATH)/resources/test-triangle-size path/to/file.stl 0.1
+```
+where _0.1_ is the particle size. This will tell you whether all triangles meet the criterion or not.
+
 3.) Running Crixus
 ------------------
 The syntax for launching Crixus is
 ```
-$(CRIXUS\_BUILD_PATH)/bin/Release/Crixus path/to/file.ini
+$(CRIXUS_BUILD_PATH)/bin/Release/Crixus path/to/file.ini
 ```
 Where _file_ is the name of the problem which will be referred to as $problem in the following. An example would be
 ```
-$(CRIXUS\_BUILD_PATH)/bin/Release/Crixus spheric2.ini
+$(CRIXUS_BUILD_PATH)/bin/Release/Crixus spheric2.ini
 ```
 where _spheric2_ is the problem name. The file.ini is an [ini file](https://en.wikipedia.org/wiki/INI_file) which has the structure
 ```
