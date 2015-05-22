@@ -223,8 +223,9 @@ The filling is then completed as no **fill_2** section is present. The data for 
 
 1. format (string, optional=vtu)
 2. name (string, optional=$problem)
+3. split (bool, optional=false)
 
-where the format option can currently be either *vtu* or *h5sph*. The name can be an optional name for the output file, if it is not set the standard $problem name will be used. If you are using GPUSPH then you need to choose h5sph as it is the only currently supported format.
+where the format option can currently be either *vtu* or *h5sph*. The name can be an optional name for the output file, if it is not set the standard $problem name will be used. If you are using GPUSPH then you need to choose h5sph as it is the only currently supported format. The *split* option causes not one file to be written but multiple ones, i.e. one for each special boundary grid.
 ```
 [output]
 format=h5sph
