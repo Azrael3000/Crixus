@@ -258,6 +258,36 @@ int vtk_output (OutBuf *buf, int len, const char *filename){
   return 0;
 }
 
+// Wrapper for {hdf5,vtk}_output()
+int generic_output(OutBuf *buf, int start, int nelem, const char* outname_c, int opt)
+{
+  string outname(outname_c);
+  int err = 0;
+
+  if(opt==2){
+    outname = "0." + outname + ".h5sph";
+    cout << "Writing output to file " << outname << " ...";
+    fflush(stdout);
+    err = hdf5_output( buf + start, nelem, outname.c_str());
+  }
+  else if(opt==1){
+    outname += ".vtu";
+    cout << "Writing output to file " << outname << " ...";
+    fflush(stdout);
+    err = vtk_output( buf + start, nelem, outname.c_str());
+  }
+  else
+    // something's really wrong if opt is not 1 nor 2
+    return err = INTERNAL_ERROR;
+
+  if(err==0){ cout << " [OK]" << endl; }
+  else {
+    cout << " [FAILED]" << endl;
+    err = WRITE_FAIL;
+  }
+  return err;
+}
+
 /* auxiliary functions to write data array entrypoints */
 inline void
 scalar_array(FILE *fid, const char *type, const char *name, size_t offset)
