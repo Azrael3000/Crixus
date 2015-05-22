@@ -7,7 +7,7 @@ set(CMAKE_BUILD_TYPE "Release")
 
 # build path
 set(EXECUTABLE_OUTPUT_PATH bin/${CMAKE_BUILD_TYPE})
-set(ENV{HDF5_ROOT} "/home/arnom/software/shdf5")
+#set(ENV{HDF5_ROOT} "/your/path/to/hdf5")
 
 # CMake Minimum verion required. 
 # FindCUDA script is distributed since version 2.8
