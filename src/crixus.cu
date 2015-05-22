@@ -45,6 +45,7 @@ int crixus_main(int argc, char** argv){
   cout << "\t*               Agnes Leroy          *" << endl;
   cout << "\t*               Antoine Joly         *" << endl;
   cout << "\t*               Giuseppe Bilotta     *" << endl;
+  cout << "\t*               Eugenio Rustico      *" << endl;
   cout << "\t**************************************" << endl;
   cout << endl;
   float m_v_floats[12];
