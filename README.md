@@ -17,7 +17,32 @@ Table of contents
 1.) Compiling Crixus
 --------------------
 
-The installation and compilation procedure is described in the file INSTALL.
+Prerequisites:
+
+* cmake >= 2.8
+* cuda
+* hdf5 >= 1.8.7
+
+Crixus uses CMake for compilation. Let us assume that you have crixus in *$(CRIXUS_PATH)* (the base path and not */path/to/crixus/src/*) and you want the building to happen in *$(CRIXUS_BUILD)* then follow the commands below:
+
+```
+mkdir $(CRIXUS_BUILD)
+cd $(CRIXUS_BUILD)
+cmake $(CRIXUS_PATH)
+make
+```
+
+Note that it is important that *$(CRIXUS_BUILD)* and *$(CRIXUS_PATH)* are different, i.e. you should not run cmake in the main Crixus folder.
+
+The binary is then located at *$(CRIXUS_BUILD)/bin/Release/Crixus*
+
+Note that *"make install"* is not supported yet. To easily change the parameters of *cmake* you can use *ccmake* instead.
+
+If hdf5 cannot be found do to lacking environmental variable you can edit the main _CMakeLists.txt_ which has a commented line that reads:
+```
+#set(ENV{HDF5_ROOT} "/your/path/to/hdf5")
+```
+Uncomment it and set the respective hdf5 path in order to use your custom installation.
 
 2.) Creating an STL file for Crixus
 -----------------------------------
