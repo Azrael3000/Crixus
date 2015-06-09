@@ -340,7 +340,7 @@ int crixus_main(int argc, char** argv){
     cout << "Swapping normals ...";
     fflush(stdout);
 
-    crixus_d::swap_normals<<<numBlocks, numThreads>>> (norm_d, nbe);
+    crixus_d::swap_normals<<<numBlocks, numThreads>>> (pre_norm_d, nbe);
 
     cout << " [OK]" << endl;
   }
