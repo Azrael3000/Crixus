@@ -331,13 +331,24 @@ int crixus_main(int argc, char** argv){
   cout << "\tNumber of vertices:         \t" << nvert << endl;
   cout << "\tNumber of boundary elements:\t" << nbe << "\n\n";
 
-  //calculate surface and position of boundary elements
-  cout << "Calculating surface and position of boundary elements ...";
-  fflush(stdout);
   int numThreads, numBlocks;
   numThreads = threadsPerBlock;
   numBlocks = (int) ceil((float)nbe/(float)numThreads);
   numBlocks = min(numBlocks,maxblock);
+
+  if (config.GetBoolean("mesh", "swap_normals", false)) {
+    cout << "Swapping normals ...";
+    fflush(stdout);
+
+    crixus_d::swap_normals<<<numBlocks, numThreads>>> (norm_d, nbe);
+
+    cout << " [OK]" << endl;
+  }
+  cout << endl;
+
+  //calculate surface and position of boundary elements
+  cout << "Calculating surface and position of boundary elements ...";
+  fflush(stdout);
 
   Lock lock;
   float xminp = 1e10, xminn = 1e10;
@@ -400,18 +411,6 @@ int crixus_main(int argc, char** argv){
     cout << "\tMaybe a Blender STL file? Save with ParaView instead." << endl;
     cout << "\t=====================================================\n" << endl;
   }
-
-  if (config.GetBoolean("mesh", "swap_normals", false)) {
-    cout << "Swapping normals ...";
-    fflush(stdout);
-
-    crixus_d::swap_normals<<<numBlocks, numThreads>>> (norm_d, nbe);
-
-    CUDA_SAFE_CALL( cudaMemcpy((void *) norma,(void *) norm_d, nbe*sizeof(uf4), cudaMemcpyDeviceToHost) );
-
-    cout << " [OK]" << endl;
-  }
-  cout << endl;
 
   //periodicity
   bool per[3] = {false, false, false};
