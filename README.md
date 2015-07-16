@@ -81,7 +81,7 @@ Once the algorithms are set up, compute the mesh (Mesh->Compute) and export the 
 
 The triangle size for Crixus needs to fulfill a certain criterion. To check whether this is met a dedicated tool exists in the _resources_ folder of Crixus, which is called _test-triangle-size_. To compile it use
 ```
-gcc -o test-triangle-size -lm test-triangle-size.c
+gcc test-triangle-size.c -lm -o test-triangle-size
 ```
 and then run it using
 ```
