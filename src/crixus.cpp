@@ -312,3 +312,120 @@ vector_array(FILE *fid, const char *type, uint dim, size_t offset)
       "format='appended' offset='%zu'/>\n",
       type, dim, offset);
 }
+
+/* Function for vertex reduction of stl file */
+void find_in_cell(list<intb>::iterator il_neib, list<intb>::iterator il_end, const float xi, const float yi, const float zi, vector<uint>& new_ids_map, vector<vector<float> >& all_verts, const float dr, const uint new_id)
+{
+  for(; il_neib != il_end; il_neib++) {
+    const float xij = all_verts[il_neib->idx][0] - xi;
+    const float yij = all_verts[il_neib->idx][1] - yi;
+    const float zij = all_verts[il_neib->idx][2] - zi;
+    const float dist = xij*xij + yij*yij + zij*zij;
+    if (dist < 1e-10*dr*dr) {
+      il_neib->found = true;
+      new_ids_map[il_neib->idx] = new_id;
+    }
+  }
+}
+
+void offset_find_in_cell(int x, int y, int z, mint3 key, map<mint3, list<intb> >cell_map, list<intb>::iterator il_neib, list<intb>::iterator il_end, const float xi, const float yi, const float zi, vector<uint>& new_ids_map, vector<vector<float> >& all_verts, const float dr, const uint new_id)
+{
+  map<mint3, list<intb> >::iterator search;
+  mint3 neib_cell = mint3(key.x+x, key.y+y, key.z+z);
+  search = cell_map.find(neib_cell);
+  if(search != cell_map.end()) {
+    list<intb>::iterator il_neib = search->second.begin();
+    list<intb>::iterator il_end = search->second.end();
+    find_in_cell(il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+  }
+}
+
+void remove_duplicate_vertices(vector<vector<float> >& all_verts, vector<vector<uint> >& old_ids, vector<vector<float> >& new_verts, vector<vector<uint> >& new_ids, const float dr)
+{
+  vector< vector <uint> >::iterator it;
+  // construct map
+  map<mint3, list<intb> > cell_map;
+  map<mint3, list<intb> >::iterator search;
+  for(it = old_ids.begin(); it < old_ids.end(); it++) {
+    for(uint i = 0; i<3; i++) {
+      float x = all_verts[(*it)[i]][0];
+      float y = all_verts[(*it)[i]][1];
+      float z = all_verts[(*it)[i]][2];
+      mint3 cell((int)(x/dr), (int)(y/dr), (int)(z/dr));
+      intb ib((*it)[i], false);
+      // find if key exists
+      search = cell_map.find(cell);
+      // if it does then append to list
+      if (search != cell_map.end())
+        search->second.push_back(ib);
+      // if not create a new map
+      else
+        cell_map[cell].push_back(ib);
+    }
+  }
+  // map output
+  map<mint3, list<intb> >::iterator im;
+  vector<uint> new_ids_map;
+  new_ids_map.resize(all_verts.size());
+  // identify similar vertices
+  for(im = cell_map.begin(); im != cell_map.end(); im++) {
+    list<intb>::iterator il;
+    for(il = im->second.begin(); il != im->second.end(); il++) {
+      if(il->found)
+        continue;
+      il->found = true; // a bit unnecessary probably
+      new_verts.push_back(all_verts[il->idx]);
+      const uint new_id = new_verts.size()-1;
+      new_ids_map[il->idx] = new_id;
+      // vert pos
+      const float xi = all_verts[il->idx][0];
+      const float yi = all_verts[il->idx][1];
+      const float zi = all_verts[il->idx][2];
+      // look in same and neighbouring cells for potentially identical vertices
+      mint3 neib_cell;
+      // x+=0 y+=0 z+=0
+      list<intb>::iterator il_neib;
+      list<intb>::iterator il_end;
+      il_neib = il;
+      il_neib++;
+      il_end = im->second.end();
+      find_in_cell(il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=0 y+=0 z+=1
+      offset_find_in_cell( 0, 0, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=0 y+=1 z+=-1
+      offset_find_in_cell( 0, 1,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=0 y+=1 z+=0
+      offset_find_in_cell( 0, 1, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=0 y+=1 z+=1
+      offset_find_in_cell( 0, 1, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=1 y+=-1 z+=-1
+      offset_find_in_cell( 1,-1,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=1 y+=-1 z+=0
+      offset_find_in_cell( 1,-1, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=1 y+=-1 z+=1
+      offset_find_in_cell( 1,-1, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=1 y+=0 z+=-1
+      offset_find_in_cell( 1, 0,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=1 y+=0 z+=0
+      offset_find_in_cell( 1, 0, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=1 y+=0 z+=1
+      offset_find_in_cell( 1, 0, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=1 y+=1 z+=-1
+      offset_find_in_cell( 1, 1,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=1 y+=1 z+=0
+      offset_find_in_cell( 1, 1, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // x+=1 y+=1 z+=1
+      offset_find_in_cell( 1, 1, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+    }
+  }
+  // write new ids into vector
+  vector<uint> idum;
+  idum.resize(3,0);
+  for (it = old_ids.begin(); it != old_ids.end(); it++) {
+    idum[0] = new_ids_map[(*it)[0]];
+    idum[1] = new_ids_map[(*it)[1]];
+    idum[2] = new_ids_map[(*it)[2]];
+    new_ids.push_back(idum);
+  }
+  return;
+}

@@ -169,9 +169,11 @@ int crixus_main(int argc, char** argv){
 
   // define variables
   vector< vector<float> > pos;
+  vector< vector<float> > all_vert_pos;
   vector< vector<float> > norm;
   vector< vector<float> >::iterator it, jt;
   vector< vector<unsigned int> > epv;
+  vector< vector<unsigned int> > init_epv;
   unsigned int nvert, nbe;
   vector<unsigned int> idum;
   vector<float> ddum;
@@ -192,57 +194,24 @@ int crixus_main(int argc, char** argv){
     for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i];
     norm.push_back(ddum);
     // save the three vertices in an array
-    vector<float> tmp;
-    tmp.resize(4, 0.0);
-    vector< vector<float> > vdum;
     for(int j=0;j<3;j++){
       for(int i=0;i<3;i++){
-        tmp[i] = (float)m_v_floats[i+3*(j+1)];
+        ddum[i] = (float)m_v_floats[i+3*(j+1)];
       }
-      tmp[3] = (float)j + 0.5; // add 0.5 so that when we (int) cast we get the proper number
-      vdum.push_back(tmp);
-    }
-    // loop over all existing vertices to see whether it already exists.
-    int k = 0;
-    for(it = pos.begin(); it < pos.end() && !vdum.empty(); it++){
-      for(jt = vdum.begin(); jt < vdum.end(); ){
-        //compute square distance between two particles
-        float diff = 0.0;
-        for(int i=0;i<3;i++) diff += ((*it)[i] - (*jt)[i])*((*it)[i] - (*jt)[i]);
-        // if we are very far away we can see that after the first distance calculation
-        // none will ever match
-        if(diff > 5.0*dr*dr)
-          break;
-        else if(diff < 1e-5*dr*dr){
-          int localVertIndex = (int)(*jt)[3];
-          idum[localVertIndex] = k;
-          vdum.erase(jt);
-          break; // if we found one match, the others wont match (hopefully)
-        }
-        else
-          ++jt;
-      }
-      k++;
-    }
-    // loop only over the remaining vertices that have not been found
-    for(jt = vdum.begin(); jt < vdum.end(); jt++){
-      for(int j=0; j<3; j++)
-        ddum[j] = (*jt)[j];
-      pos.push_back(ddum);
+      all_vert_pos.push_back(ddum);
+      idum[j]=through*3 + j;
       xmin = (xmin > ddum[0]) ? ddum[0] : xmin;
       xmax = (xmax < ddum[0]) ? ddum[0] : xmax;
       ymin = (ymin > ddum[1]) ? ddum[1] : ymin;
       ymax = (ymax < ddum[1]) ? ddum[1] : ymax;
       zmin = (zmin > ddum[2]) ? ddum[2] : zmin;
       zmax = (zmax < ddum[2]) ? ddum[2] : zmax;
-      int localVertIndex = (int)(*jt)[3];
-      idum[localVertIndex] = pos.size() - 1;
     }
-    vdum.clear();
-    epv.push_back(idum);
+    init_epv.push_back(idum);
     stl_file.read((char *)&attribute, sizeof(short));
     through++;
   }
+  remove_duplicate_vertices(all_vert_pos, init_epv, pos, epv, dr);
   stl_file.close();
   if(num_of_facets != norm.size()){
     cout << " [FAILED]" << endl;
