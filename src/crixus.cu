@@ -212,6 +212,8 @@ int crixus_main(int argc, char** argv){
     through++;
   }
   remove_duplicate_vertices(all_vert_pos, init_epv, pos, epv, dr);
+  all_vert_pos.clear();
+  init_epv.clear();
   stl_file.close();
   if(num_of_facets != norm.size()){
     cout << " [FAILED]" << endl;
