@@ -292,23 +292,23 @@ int generic_output(OutBuf *buf, int start, int nelem, const char* outname_c, int
 inline void
 scalar_array(FILE *fid, const char *type, const char *name, size_t offset)
 {
-	fprintf(fid, "	<DataArray type='%s' Name='%s' "
-			"format='appended' offset='%zu'/>\n",
-			type, name, offset);
+  fprintf(fid, "  <DataArray type='%s' Name='%s' "
+      "format='appended' offset='%zu'/>\n",
+      type, name, offset);
 }
 
 inline void
 vector_array(FILE *fid, const char *type, const char *name, uint dim, size_t offset)
 {
-	fprintf(fid, "	<DataArray type='%s' Name='%s' NumberOfComponents='%u' "
-			"format='appended' offset='%zu'/>\n",
-			type, name, dim, offset);
+  fprintf(fid, "  <DataArray type='%s' Name='%s' NumberOfComponents='%u' "
+      "format='appended' offset='%zu'/>\n",
+      type, name, dim, offset);
 }
 
 inline void
 vector_array(FILE *fid, const char *type, uint dim, size_t offset)
 {
-	fprintf(fid, "	<DataArray type='%s' NumberOfComponents='%u' "
-			"format='appended' offset='%zu'/>\n",
-			type, dim, offset);
+  fprintf(fid, "  <DataArray type='%s' NumberOfComponents='%u' "
+      "format='appended' offset='%zu'/>\n",
+      type, dim, offset);
 }
