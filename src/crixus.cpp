@@ -390,32 +390,56 @@ void remove_duplicate_vertices(vector<vector<float> >& all_verts, vector<vector<
       il_neib++;
       il_end = im->second.end();
       find_in_cell(il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      // look in neighboring cells:
+      // check whether we are close to the x+1 cell
+      bool close_xp = (float)((int)(xi/dr)+1) - xi/dr < 1e-5*dr;
+      // check whether we are close to the y+1 cell
+      bool close_yp = (float)((int)(yi/dr)+1) - yi/dr < 1e-5*dr;
+      // check whether we are close to the z+1 cell
+      bool close_zp = (float)((int)(zi/dr)+1) - zi/dr < 1e-5*dr;
+      // check whether we are close to the y-1 cell
+      bool close_ym = yi/dr - (float)((int)(yi/dr)) < 1e-5*dr;
+      // check whether we are close to the z-1 cell
+      bool close_zm = zi/dr - (float)((int)(zi/dr)) < 1e-5*dr;
       // x+=0 y+=0 z+=1
-      offset_find_in_cell( 0, 0, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_zp)
+        offset_find_in_cell( 0, 0, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=0 y+=1 z+=-1
-      offset_find_in_cell( 0, 1,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_yp && close_zm)
+        offset_find_in_cell( 0, 1,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=0 y+=1 z+=0
-      offset_find_in_cell( 0, 1, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_yp)
+        offset_find_in_cell( 0, 1, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=0 y+=1 z+=1
-      offset_find_in_cell( 0, 1, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_yp && close_zp)
+        offset_find_in_cell( 0, 1, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=1 y+=-1 z+=-1
-      offset_find_in_cell( 1,-1,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_xp && close_ym && close_zm)
+        offset_find_in_cell( 1,-1,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=1 y+=-1 z+=0
-      offset_find_in_cell( 1,-1, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_xp && close_ym)
+        offset_find_in_cell( 1,-1, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=1 y+=-1 z+=1
-      offset_find_in_cell( 1,-1, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_xp && close_ym && close_zp)
+        offset_find_in_cell( 1,-1, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=1 y+=0 z+=-1
-      offset_find_in_cell( 1, 0,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_xp && close_zm)
+        offset_find_in_cell( 1, 0,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=1 y+=0 z+=0
-      offset_find_in_cell( 1, 0, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_xp)
+        offset_find_in_cell( 1, 0, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=1 y+=0 z+=1
-      offset_find_in_cell( 1, 0, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_xp && close_zp)
+        offset_find_in_cell( 1, 0, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=1 y+=1 z+=-1
-      offset_find_in_cell( 1, 1,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_xp && close_yp && close_zm)
+        offset_find_in_cell( 1, 1,-1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=1 y+=1 z+=0
-      offset_find_in_cell( 1, 1, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_xp && close_yp)
+        offset_find_in_cell( 1, 1, 0, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
       // x+=1 y+=1 z+=1
-      offset_find_in_cell( 1, 1, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
+      if (close_xp && close_yp && close_zp)
+        offset_find_in_cell( 1, 1, 1, im->first, cell_map, il_neib, il_end, xi, yi, zi, new_ids_map, all_verts, dr, new_id);
     }
   }
   // write new ids into vector
