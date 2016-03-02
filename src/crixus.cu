@@ -545,30 +545,22 @@ int crixus_main(int argc, char** argv){
       {
         stl_file.read((char *)&m_v_floats[i], sizeof(float));
       }
+      for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i];
+      // save the three vertices in an array
       for(int j=0;j<3;j++){
-        for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
-        int k = 0;
-        bool found = false;
-        for(it = pos.begin(); it < pos.end(); it++){
-          float diff = 0;
-          for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
-          diff = sqrt(diff);
-          if(diff < 1e-5*dr){
-            idum[j] = k;
-            found = true;
-            break;
-          }
-          k++;
+        for(int i=0;i<3;i++){
+          ddum[i] = (float)m_v_floats[i+3*(j+1)];
         }
-        if(!found){
-          pos.push_back(ddum);
-          idum[j] = k;
-        }
+        all_vert_pos.push_back(ddum);
+        idum[j]=through*3 + j;
       }
-      epv.push_back(idum);
+      init_epv.push_back(idum);
       stl_file.read((char *)&attribute, sizeof(short));
       through++;
     }
+    remove_duplicate_vertices(all_vert_pos, init_epv, pos, epv, dr);
+    all_vert_pos.clear();
+    init_epv.clear();
     stl_file.close();
     if(num_of_facets != epv.size()){
       cout << " [FAILED]" << endl;
@@ -845,29 +837,19 @@ int crixus_main(int argc, char** argv){
         through = 0;
         while ((through < num_of_facets) & (!fstl_file.eof()))
         {
-          for (int i=0; i<12; i++){
+          for (int i=0; i<12; i++)
+          {
             fstl_file.read((char *)&m_v_floats[i], sizeof(float));
           }
+          // save the three vertices in an array
           for(int j=0;j<3;j++){
-            for(int i=0;i<3;i++) ddum[i] = (float)m_v_floats[i+3*(j+1)];
-            int k = 0;
-            bool found = false;
-            for(it = pos.begin(); it < pos.end(); it++){
-              float diff = 0;
-              for(int i=0;i<3;i++) diff += pow((*it)[i]-ddum[i],2);
-              diff = sqrt(diff);
-              if(diff < 1e-5*dr){
-                idum[j] = k+nvert;
-                found = true;
-                break;
-              }
-              k++;
+            for(int i=0;i<3;i++){
+              ddum[i] = (float)m_v_floats[i+3*(j+1)];
             }
-            if(!found){
-              pos.push_back(ddum);
-              idum[j] = k+nvert;
-            }
+            all_vert_pos.push_back(ddum);
+            idum[j]=through*3 + j;
           }
+          init_epv.push_back(idum);
           // get normal of triangle
           float lenNorm = 0.0;
           for(int i=0;i<3;i++){
@@ -887,10 +869,12 @@ int crixus_main(int argc, char** argv){
               ddum[i] = tnorm.a[i];
           }
           norm.push_back(ddum);
-          epv.push_back(idum);
           fstl_file.read((char *)&attribute, sizeof(short));
           through++;
         }
+        remove_duplicate_vertices(all_vert_pos, init_epv, pos, epv, dr);
+        all_vert_pos.clear();
+        init_epv.clear();
         fstl_file.close();
         if(num_of_facets != norm.size()){
           cout << " [FAILED]" << endl;
@@ -920,7 +904,7 @@ int crixus_main(int argc, char** argv){
           if(i<fsnbe){
             for(int j=0; j<3; j++){
               fnorma[i+nbe].a[j] = norm[i][j];
-              fep[i+nbe].a[j] = epv[i][j];
+              fep[i+nbe].a[j] = epv[i][j] + nvert;
             }
           }
           if(i<fsnvert){
