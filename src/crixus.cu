@@ -660,8 +660,10 @@ int crixus_main(int argc, char** argv){
   fflush(stdout);
 
   ifstream fstl_file (cfname.c_str(), ios::in);
+  bool requireFluidGeomRead = true;
   if(!fstl_file.is_open()){
     cout << " [NO]" << endl;
+    requireFluidGeomRead = false;
   }
   else{
     cout << " [YES]" << endl;
@@ -693,9 +695,8 @@ int crixus_main(int argc, char** argv){
   }
 
   bool set = true;
-  bool firstfgeom = true;
   // number of vertices and boundary elements of the fluid shape file
-  unsigned int fsnvert, fsnbe;
+  unsigned int fsnvert, fsnbe = 0;
   unsigned int nfluid = 0;
   unsigned int maxf = 0, maxfn;
   int opt;
@@ -810,11 +811,11 @@ int crixus_main(int argc, char** argv){
       int jdimg = (int)floor((dmax.a[1]-dmin.a[1]+eps)/dr+1);
       int sInd = ispos + jspos*idimg + kspos*idimg*jdimg;
       // number of vert & bound elements of both geometry & fshape mesh
-      unsigned int fnvert, fnbe;
+      unsigned int fnvert, fnbe = nbe;
 
       // initialize geometry if first run
-      if(firstfgeom){
-        firstfgeom = false;
+      if(requireFluidGeomRead){
+        requireFluidGeomRead = false;
 
         cudaFree(norm_d  );
         cudaFree(pos_d   );
@@ -942,7 +943,7 @@ int crixus_main(int argc, char** argv){
         numBlocks = (int) ceil((float)maxf/(float)numThreads);
         numBlocks = min(numBlocks,maxblock);
         cout << " [OK]" << endl;
-      } // end firstfgeom
+      } // end requireFluidGeomRead
 
       unsigned int nfi;
       unsigned int iteration = 0;
@@ -966,7 +967,7 @@ int crixus_main(int argc, char** argv){
     fillSectionTest << "fill_" << (nFill+1);
     if (config.Get(fillSectionTest.str(), "option", "UNKNOWN") == "UNKNOWN") {
       continueFill = false;
-      if (!firstfgeom) {
+      if (!requireFluidGeomRead) {
         delete [] fposa;
         delete [] fnorma;
         delete [] fep;
