@@ -681,26 +681,26 @@ __global__ void fill_fluid (unsigned int *fpos, unsigned int *nfi, float xmin, f
 {
   // this function is responsible for filling a box with fluid
   __shared__ int nfi_cache[threadsPerBlock];
-  int bitPerUint = 8*sizeof(unsigned int);
+  unsigned int bitPerUint = 8*sizeof(unsigned int);
   //dim local
-  int idim =  floor((xmax+eps-xmin)/dr)+1;
-  int jdim =  floor((ymax+eps-ymin)/dr)+1;
-  int kdim =  floor((zmax+eps-zmin)/dr)+1;
+  unsigned int idim =  floor((xmax+eps-xmin)/dr)+1;
+  unsigned int jdim =  floor((ymax+eps-ymin)/dr)+1;
+  unsigned int kdim =  floor((zmax+eps-zmin)/dr)+1;
   //dim global
-  int idimg = int(floor((fcmax.a[0]-fcmin.a[0]+eps)/dr+1));
-  int jdimg = int(floor((fcmax.a[1]-fcmin.a[1]+eps)/dr+1));
-  int kdimg = int(floor((fcmax.a[2]-fcmin.a[2]+eps)/dr+1));
+  unsigned int idimg = (unsigned int)(floor((fcmax.a[0]-fcmin.a[0]+eps)/dr+1));
+  unsigned int jdimg = (unsigned int)(floor((fcmax.a[1]-fcmin.a[1]+eps)/dr+1));
+  unsigned int kdimg = (unsigned int)(floor((fcmax.a[2]-fcmin.a[2]+eps)/dr+1));
   //min indices
-  int imin = (int)round(((float)idimg-1.)*(xmin-fcmin.a[0])/(fcmax.a[0]-fcmin.a[0]));
-  int jmin = (int)round(((float)jdimg-1.)*(ymin-fcmin.a[1])/(fcmax.a[1]-fcmin.a[1]));
-  int kmin = (int)round(((float)kdimg-1.)*(zmin-fcmin.a[2])/(fcmax.a[2]-fcmin.a[2]));
+  unsigned int imin = (unsigned int)round(((float)idimg-1.)*(xmin-fcmin.a[0])/(fcmax.a[0]-fcmin.a[0]));
+  unsigned int jmin = (unsigned int)round(((float)jdimg-1.)*(ymin-fcmin.a[1])/(fcmax.a[1]-fcmin.a[1]));
+  unsigned int kmin = (unsigned int)round(((float)kdimg-1.)*(zmin-fcmin.a[2])/(fcmax.a[2]-fcmin.a[2]));
 
-  int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
-  int i,j,k,tmp,nfi_tmp;
+  unsigned int arrayInd = blockIdx.x*blockDim.x+threadIdx.x;
+  unsigned int i,j,k,tmp,nfi_tmp;
   nfi_tmp = 0;
-  while(((int)ceil(arrayInd/((float)bitPerUint)))<idimg*jdimg*kdimg){
+  while(arrayInd*bitPerUint < idimg*jdimg*kdimg){
     // loop through all bits of the array entry with index arrayInd
-    for(int ii=0, bitInd=arrayInd*bitPerUint; ii<bitPerUint; ii++, bitInd++){
+    for(unsigned int ii=0, bitInd=arrayInd*bitPerUint; ii<bitPerUint; ii++, bitInd++){
       k = bitInd/(idimg*jdimg);
       tmp = bitInd%(idimg*jdimg);
       j = tmp/idimg;
